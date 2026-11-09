@@ -107,9 +107,11 @@ Methods never raise for API or network problems. A failed call returns an error 
 ```
 
 - `Code` is `API_<HTTP status>` for gateway errors (`API_400`, `API_401`, `API_429`, `API_500`, ...). A `301`/`302` answer means bad credentials (`Invalid API credentials`).
-- An empty error body becomes a readable message such as `HTTP 429 - Too Many Requests`.
+- When the gateway sends its own error code, the envelope also carries it as `GatewayCode` (e.g. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`), so you can tell one `API_404` from another.
+- An empty error body becomes a readable message such as `HTTP 429 - Too Many Requests`. The raw response body is never used as the message when the gateway's message is boilerplate; a stable text naming the gateway code is used instead.
 - Field validation errors are flattened into `Details`, e.g. `Admin PostalCode - 'PostalCode' is required`.
-- Network failures are errors, never an empty success. A timeout reads `Could not reach the DomainNameAPI service: the connection timed out. (...)`; other transport failures read `Curl error during request: ...`. Their codes follow curl's numbers (`API_28` timeout, `API_6` DNS, `API_7` connection refused, `API_35`/`API_60` TLS); `get_parsed_response_data['Code']` holds `CURL_<n>`.
+- Network failures are errors, never an empty success. A timeout reads `Could not reach the DomainNameAPI service: the connection timed out. (...)`; other transport failures read `Curl error during request: ...`. Their codes are `CURL_<n>` with curl's numbers (`CURL_28` timeout, `CURL_6` DNS, `CURL_7` connection refused, `CURL_35`/`CURL_60` TLS, `CURL_56` reset); `API_<n>` is reserved for HTTP statuses.
+- A registration, transfer or renewal that the gateway answers with HTTP 200 but `"success": false` is a refusal, not a success: it returns the error envelope with code `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` or `RENEW_DOMAIN` and the gateway's message.
 - `get_current_balance` keeps its own envelope: `'OperationResult' => 'FAILED'` with `ErrorCode` and `OperationMessage`.
 - `check_availability` returns a plain list on success and the error envelope on failure.
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### Current balance
 
-`get_current_balance(currency = 'USD')` — `'USD'`, `'TRY'`, `'EUR'` or `'GBP'`.
+`get_current_balance(currency = 'USD')` — the account reports `'USD'` and `'TRY'` balances. For any other currency (`'EUR'`, `'GBP'`, ...) the call fails with `'ErrorCode' => 'BALANCE'` instead of answering `0.00`.
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### Domain availability check
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — `DomainName` in the result is the name without its trailing `.tld`.
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### Nameserver modification
 
-Pass a list or a Hash (the values are used).
+Pass a list or a Hash (the values are used). Names are trimmed, lower-cased, stripped of a trailing dot and de-duplicated; the result reports that normalised list.
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### Modify domain privacy
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — privacy is switched on only when `status` is exactly `true`.
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` may be `true`/`false` or a panel-style value: `1`, `'1'`, `'true'`, `'on'` and `'yes'` enable privacy, anything else disables it. The result reports the parsed boolean. `reason` is accepted for compatibility but not sent: the gateway has no such field.
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### Get domain contacts
+
+Contact types are matched case-insensitively (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`); other types the registry returns are kept after the four standard ones.
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # any other contact type the registry returns follows these four
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### Domain transfer
 
-`transfer(domain, epp_code, period, contacts = {})` — like php-dna's facade, the transfer is sent without contacts (the gateway keeps the current ones).
+`transfer(domain, epp_code, period)` — a transfer never sends contacts: the registrar handles them, so the request always carries an empty contact list and the method takes no contacts argument. Update contacts with `save_contacts` once the transfer has completed.
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### DNS zone
 
 Supported record types: `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (other types are rejected before any call). Names are relative (`'www'`); `''` or `'@'` is the zone apex, and a full name such as `'www.example.com'` is reduced to its label. Changes are applied immediately; pass `apply = false` to stage several and call `apply_resource_records` once. TTL is 1–86400 seconds.
+
+If the automatic apply fails, the method returns the apply error (the change stays staged, not live) instead of `OK`. The result reports the upper-cased type and the TTL that were actually sent.
 
 The gateway stores a name + type as one **set**: writing a set replaces all of its values, and deleting one value deletes the whole set. The `*_resource_record_value` methods do the read-merge-write for you.
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### URL forwarding
 
-Forward types: `'Standard'` (plain redirect) and `'Frame'` (masked).
+Forward types: `'Standard'` (plain redirect) and `'Frame'` (masked). The gateway answers `Redirect information not found` when nothing is configured: `get_forwarding` then reports `'Enabled' => false` and `delete_forwarding` succeeds with `'Removed' => false`. Any other error, such as an unknown domain, is returned as an error.
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding (nothing configured gives Enabled => false, not an error)
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding (Removed => false when nothing was configured)
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### Validate a contact
 
-Completes and normalizes a contact the way registration does: digits and punctuation are removed from names, a missing state becomes the city, country names become ISO codes and phone numbers are split into number and country code.
+Completes and normalizes a contact the way registration does: digits and punctuation are removed from names, a missing state becomes the city, country names become ISO codes and phone numbers are split into number and country code. A number written with its own `+` or `00` calling code keeps that code even when another `PhoneCountryCode` was given (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')
