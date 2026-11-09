@@ -24,7 +24,7 @@ class UtilsTest < Minitest::Test
     result = @client.validate_contact({})
     assert_equal 'Isimyok', result['FirstName']
     assert_equal 'Isimyok', result['LastName']
-    assert_equal 'ISTANBUL', result['State']
+    assert_equal 'ISTANBUL', result['State'] # falls back to the (default) city
     assert_equal '5555555555', result['Phone']
     assert_equal '90', result['PhoneCountryCode']
     assert_equal '', result['Fax']
@@ -44,6 +44,19 @@ class UtilsTest < Minitest::Test
     assert_equal '2121234567', result['Fax']
     assert_equal '90', result['FaxCountryCode']
     assert_equal 'kept@example.com', result['EMail']
+  end
+
+  def test_validate_contact_state_falls_back_to_city
+    assert_equal 'Ankara', @client.validate_contact('City' => 'Ankara')['State']
+  end
+
+  def test_phone_with_its_own_calling_code_keeps_it
+    result = @client.validate_contact('Phone' => '+1 202 555 0100', 'PhoneCountryCode' => '90')
+    assert_equal %w[2025550100 1], [result['Phone'], result['PhoneCountryCode']]
+    result = @client.validate_contact('Phone' => '+44 20 7123 4567', 'PhoneCountryCode' => '90')
+    assert_equal %w[2071234567 44], [result['Phone'], result['PhoneCountryCode']]
+    result = @client.validate_contact('Phone' => '+90 532 374 33 88', 'PhoneCountryCode' => '90')
+    assert_equal %w[5323743388 90], [result['Phone'], result['PhoneCountryCode']]
   end
 
   def test_validate_contact_keeps_unicode_letters

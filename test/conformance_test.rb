@@ -20,7 +20,7 @@ class ConformanceTest < Minitest::Test
   end
 
   def test_all_fixtures_present
-    assert_equal 126, Dir[File.join(FIXTURE_DIR, '*.json')].size
+    assert_equal 134, Dir[File.join(FIXTURE_DIR, '*.json')].size
   end
 
   private
@@ -31,7 +31,17 @@ class ConformanceTest < Minitest::Test
     method = self.class.snake(fixture['call']).sub('is_tr_t_l_d', 'is_tr_tld')
     assert client.respond_to?(method), "client does not implement #{method}"
 
-    output = client.public_send(method, *fixture['args'])
+    args = fixture['args']
+    params = client.method(method).parameters
+    max_args = params.any? { |t, _| t == :rest } ? -1 : params.count { |t, _| %i[req opt].include?(t) }
+    if max_args >= 0 && args.size > max_args
+      # Arguments php-dna accepts but ruby-dna deliberately does not (transfer
+      # contacts, which are never sent): the call must refuse them, and the
+      # remaining arguments must produce php-dna's requests and output.
+      assert_raises(ArgumentError) { client.public_send(method, *args) }
+      args = args.first(max_args)
+    end
+    output = client.public_send(method, *args)
 
     assert_equal 0, transport.remaining, "#{fixture['id']}: not every response was consumed"
     assert_equal fixture['requests'].size, transport.requests.size, "#{fixture['id']}: request count"

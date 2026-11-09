@@ -149,7 +149,8 @@ class HttpTest < Minitest::Test
     @transport.instance_variable_get(:@queue)[-1] = DomainNameApi::TransportError.new('Operation timed out', 28)
     result = @client.modify_name_server('example.com', ['ns1.example.com'])
     assert_equal 'ERROR', result['result']
-    assert_equal 'API_28', result['error']['Code']
+    assert_equal 'CURL_28', result['error']['Code']
+    refute result['error'].key?('GatewayCode')
     expected = 'Could not reach the DomainNameAPI service: the connection timed out. (Operation timed out)'
     assert_equal expected, result['error']['Message']
     assert_equal expected, result['error']['Details']
@@ -159,7 +160,7 @@ class HttpTest < Minitest::Test
   def test_other_transport_errors
     @transport.instance_variable_get(:@queue) << DomainNameApi::TransportError.new('getaddrinfo failed', 6)
     result = @client.get_reseller_details
-    assert_equal 'API_6', result['error']['Code']
+    assert_equal 'CURL_6', result['error']['Code']
     assert_equal 'Curl error during request: getaddrinfo failed', result['error']['Message']
     assert_equal 'CURL_6', @client.get_parsed_response_data['Code']
   end
@@ -213,17 +214,106 @@ class HttpTest < Minitest::Test
     assert_equal 'abc', client.get_reseller_details['id']
   end
 
-  def test_rest_transfer_sends_contacts_while_facade_matches_php_dna
-    contact = { 'FirstName' => 'Ada', 'LastName' => 'Lovelace', 'EMail' => 'ada@example.com' }
+  def test_transfer_never_sends_contacts
+    assert_equal 3, @client.method(:transfer).arity
+    assert_equal 3, @client.rest.method(:transfer).arity
     @transport.push(200, '{"domainName":"example.com"}')
-    @client.rest.transfer('example.com', 'EPP', 1, 'Registrant' => contact)
+    @client.transfer('example.com', 'EPP', 1)
     body = JSON.parse(@transport.requests.last[:body])
-    assert_equal 1, body['contacts'].size
-    assert_equal 'Registrant', body['contacts'][0]['contactType']
+    assert_equal({ 'domainName' => 'example.com', 'authCode' => 'EPP', 'period' => 1, 'contacts' => [] }, body)
+    assert_raises(ArgumentError) { @client.transfer('example.com', 'EPP', 1, 'Registrant' => {}) }
+  end
 
-    @transport.push(200, '{"domainName":"example.com"}')
-    @client.transfer('example.com', 'EPP', 1, 'Registrant' => contact)
-    assert_equal [], JSON.parse(@transport.requests.last[:body])['contacts']
+  def test_gateway_success_false_is_an_error
+    { register: 'REGISTER_DOMAIN', transfer: 'TRANSFER_DOMAIN', renew: 'RENEW_DOMAIN' }.each do |call, code|
+      @transport.push(200, '{"success":false,"message":"Registry refused the order"}')
+      result = case call
+               when :register then @client.register_with_contact_info('example.com', 1, {})
+               when :transfer then @client.transfer('example.com', 'EPP', 1)
+               else @client.renew('example.com', 1)
+               end
+      assert_equal({ 'result' => 'ERROR',
+                     'error' => { 'Code' => code, 'Message' => 'Registry refused the order',
+                                  'Details' => 'Registry refused the order' } }, result)
+    end
+    @transport.push(200, '{"success":false}')
+    assert_equal 'The registry did not accept the request.', @client.renew('example.com', 1)['error']['Message']
+  end
+
+  def test_gateway_code_is_kept_next_to_the_http_code
+    @transport.push(404, '{"error":{"code":"Dna.DomainService:Domain:10007","message":"Domain not found"}}')
+    error = @client.get_details('example.com')['error']
+    assert_equal 'API_404', error['Code']
+    assert_equal 'Dna.DomainService:Domain:10007', error['GatewayCode']
+
+    @transport.push(500, '')
+    refute @client.get_details('example.com')['error'].key?('GatewayCode')
+  end
+
+  def test_message_never_falls_back_to_the_raw_body
+    @transport.push(400, '{"error":{"code":"Dna:42","message":"Dna:42"}}')
+    message = @client.get_details('example.com')['error']['Message']
+    assert_equal 'The operation could not be completed by the registry (error: Dna:42). Please try again or contact support.',
+                 message
+  end
+
+  def test_privacy_status_parsing_and_no_reason_sent
+    [[true, true], [false, false], [1, true], ['1', true], [' on ', true], ['true', true], ['yes', true],
+     [0, false], ['0', false], ['off', false], [nil, false], ['nonsense', false]].each do |input, expected|
+      @transport.push(200, '{}')
+      result = @client.modify_privacy_protection_status('example.com', input, 'Because')
+      body = JSON.parse(@transport.requests.last[:body])
+      assert_equal({ 'domainName' => 'example.com', 'privacyStatus' => expected }, body, input.inspect)
+      assert_equal expected, result['data']['PrivacyProtectionStatus']
+    end
+  end
+
+  def test_balance_for_an_unreported_currency_fails
+    @transport.push(200, '{"resellerId":"r","usdBalance":10,"tryBalance":20}')
+    result = @client.get_current_balance('EUR')
+    assert_equal 'BALANCE', result['ErrorCode']
+    assert_equal 'FAILED', result['OperationResult']
+    assert_equal 'No EUR balance is reported for this account. Available: USD, TRY.', result['OperationMessage']
+  end
+
+  def test_forwarding_not_set_versus_missing_domain
+    @transport.push(404, '{"error":{"message":"Redirect information not found"}}')
+    assert_equal({ 'result' => 'OK', 'data' => { 'Enabled' => false, 'RedirectAddress' => '', 'ForwardType' => '' } },
+                 @client.get_forwarding('example.com'))
+    @transport.push(404, '{"error":{"message":"Redirect information not found"}}')
+    assert_equal({ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => false } },
+                 @client.delete_forwarding('example.com'))
+    @transport.push(200, '')
+    assert_equal true, @client.delete_forwarding('example.com')['data']['Removed']
+    @transport.push(404, '{"error":{"message":"Domain not found"}}')
+    assert_equal 'ERROR', @client.get_forwarding('missing.com')['result']
+  end
+
+  def test_zone_write_returns_the_apply_error
+    @transport.push(200, '')
+    @transport.push(429, '')
+    result = @client.add_resource_record('example.com', 'www', 'a', '192.0.2.1', 999_999)
+    assert_equal 'API_429', result['error']['Code']
+
+    @transport.push(200, '')
+    @transport.push(200, '')
+    result = @client.add_resource_record('example.com', 'www', 'a', '192.0.2.1', 999_999)
+    assert_equal({ 'Name' => 'www', 'Type' => 'A', 'TTL' => 86_400, 'Content' => '192.0.2.1' }, result['data'])
+  end
+
+  def test_get_contacts_types_are_case_insensitive_and_unknown_types_kept
+    contacts = [{ 'contactType' => 'OWNER', 'handle' => 'R' }, { 'contactType' => 'admin', 'handle' => 'A' },
+                { 'contactType' => 'Reseller', 'handle' => 'X' }, { 'contactType' => 'TECHNICAL', 'handle' => 'T' }]
+    @transport.push(200, JSON.generate('contacts' => contacts))
+    result = @client.get_contacts('example.com')['data']['contacts']
+    assert_equal %w[Administrative Registrant Technical Reseller], result.keys
+    assert_equal 'R', result['Registrant']['ID']
+    assert_equal 'X', result['Reseller']['ID']
+  end
+
+  def test_availability_strips_only_the_trailing_tld
+    @transport.push(200, '[{"domainName":"my.company.com","status":"available"}]')
+    assert_equal 'my.company', @client.check_availability(['my.company'], ['com'], 1).first['DomainName']
   end
 
   def test_set_resource_record_set_requires_a_list

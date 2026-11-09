@@ -95,7 +95,7 @@ class TransportTest < Minitest::Test
       client.set_service_url("http://127.0.0.1:#{port}/api/v1")
       result = client.enable_theft_protection_lock('example.com')
       assert_equal 'ERROR', result['result']
-      assert_equal 'API_28', result['error']['Code']
+      assert_equal 'CURL_28', result['error']['Code']
       assert_match(/\ACould not reach the DomainNameAPI service: the connection timed out\./, result['error']['Message'])
     end
   end

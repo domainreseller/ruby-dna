@@ -84,6 +84,8 @@ class TelemetryTest < Minitest::Test
     @client.get_details('missing.com')
     @transport.push(302, '')
     @client.get_details('example.com')
+    @transport.push(404, '{"error":{"message":"Redirect information not found"}}')
+    @client.get_forwarding('example.com')
     assert_empty error_events
   end
 
