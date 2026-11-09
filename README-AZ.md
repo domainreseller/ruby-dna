@@ -107,9 +107,11 @@ Metodlar API və ya şəbəkə problemlərinə görə heç vaxt istisna (excepti
 ```
 
 - Gateway xətaları üçün `Code` dəyəri `API_<HTTP status>` formasındadır (`API_400`, `API_401`, `API_429`, `API_500`, ...). `301`/`302` cavabı yanlış giriş məlumatları deməkdir (`Invalid API credentials`).
-- Boş xəta gövdəsi `HTTP 429 - Too Many Requests` kimi oxunaqlı mesaja çevrilir.
+- Gateway öz xəta kodunu göndərdikdə zərf onu `GatewayCode` kimi də daşıyır (məs. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`), beləliklə bir `API_404`-ü digərindən ayırd edə bilərsiniz.
+- Boş xəta gövdəsi `HTTP 429 - Too Many Requests` kimi oxunaqlı mesaja çevrilir. Gateway-in mesajı şablon (boilerplate) mətndirsə, xam cavab gövdəsi heç vaxt mesaj kimi istifadə olunmur; bunun əvəzinə gateway kodunu göstərən sabit mətn istifadə olunur.
 - Sahə yoxlama xətaları `Details` içində düz mətnə çevrilir, məsələn `Admin PostalCode - 'PostalCode' is required`.
-- Şəbəkə nasazlıqları xətadır, heç vaxt boş uğur deyil. Vaxt aşımı (timeout) `Could not reach the DomainNameAPI service: the connection timed out. (...)` kimi oxunur; digər transport nasazlıqları `Curl error during request: ...` kimi oxunur. Onların kodları curl nömrələrinə uyğundur (`API_28` vaxt aşımı, `API_6` DNS, `API_7` bağlantı rədd edildi, `API_35`/`API_60` TLS); `get_parsed_response_data['Code']` isə `CURL_<n>` dəyərini saxlayır.
+- Şəbəkə nasazlıqları xətadır, heç vaxt boş uğur deyil. Vaxt aşımı (timeout) `Could not reach the DomainNameAPI service: the connection timed out. (...)` kimi oxunur; digər transport nasazlıqları `Curl error during request: ...` kimi oxunur. Onların kodları curl nömrələri ilə `CURL_<n>` formasındadır (`CURL_28` vaxt aşımı, `CURL_6` DNS, `CURL_7` bağlantı rədd edildi, `CURL_35`/`CURL_60` TLS, `CURL_56` bağlantının qırılması); `API_<n>` isə HTTP statusları üçün ayrılıb.
+- Gateway-in HTTP 200 ilə, lakin `"success": false` ilə cavab verdiyi qeydiyyat, transfer və ya yenilənmə uğur deyil, imtinadır: `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` və ya `RENEW_DOMAIN` kodu və gateway-in mesajı ilə xəta zərfi qaytarılır.
 - `get_current_balance` öz zərfini saxlayır: `ErrorCode` və `OperationMessage` ilə birlikdə `'OperationResult' => 'FAILED'`.
 - `check_availability` uğur halında adi siyahı, uğursuzluq halında isə xəta zərfi qaytarır.
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### Cari balans
 
-`get_current_balance(currency = 'USD')` — `'USD'`, `'TRY'`, `'EUR'` və ya `'GBP'`.
+`get_current_balance(currency = 'USD')` — hesab `'USD'` və `'TRY'` balanslarını bildirir. Hər hansı digər valyuta üçün (`'EUR'`, `'GBP'`, ...) çağırış `0.00` cavabı vermək əvəzinə `'ErrorCode' => 'BALANCE'` ilə uğursuz olur.
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### Domen mövcudluğunun yoxlanılması
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — nəticədəki `DomainName` sonundakı `.tld` olmadan addır.
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### Nameserver dəyişdirmə
 
-Siyahı və ya Hash ötürün (Hash-in dəyərləri istifadə olunur).
+Siyahı və ya Hash ötürün (Hash-in dəyərləri istifadə olunur). Adların kənar boşluqları silinir, kiçik hərflərə çevrilir, sonundakı nöqtə atılır və təkrarlar çıxarılır; nəticə bu normallaşdırılmış siyahını bildirir.
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### Domen məxfiliyini dəyişdirmə
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — məxfilik yalnız `status` dəqiq `true` olduqda aktivləşdirilir.
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` `true`/`false` və ya panel üslubunda dəyər ola bilər: `1`, `'1'`, `'true'`, `'on'` və `'yes'` məxfiliyi aktivləşdirir, qalan hər şey onu söndürür. Nəticə emal edilmiş boolean dəyəri bildirir. `reason` uyğunluq üçün qəbul edilir, lakin göndərilmir: gateway-də belə sahə yoxdur.
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### Domen əlaqə məlumatlarını əldə etmək
+
+Əlaqə tipləri böyük-kiçik hərfə həssas olmadan uyğunlaşdırılır (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`); registry-nin qaytardığı digər tiplər dörd standart tipdən sonra saxlanılır.
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # registry-nin qaytardığı hər hansı digər əlaqə tipi bu dördündən sonra gəlir
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### Domen transferi
 
-`transfer(domain, epp_code, period, contacts = {})` — php-dna-nın fasadında olduğu kimi, transfer əlaqə məlumatları olmadan göndərilir (gateway mövcud əlaqə məlumatlarını saxlayır).
+`transfer(domain, epp_code, period)` — transfer heç vaxt əlaqə məlumatlarını göndərmir: onları registrar idarə edir, buna görə sorğu həmişə boş əlaqə siyahısı daşıyır və metod əlaqə arqumenti qəbul etmir. Transfer tamamlandıqdan sonra əlaqə məlumatlarını `save_contacts` ilə yeniləyin.
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### DNS zonası
 
 Dəstəklənən qeyd tipləri: `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (digər tiplər heç bir çağırış edilmədən rədd olunur). Adlar nisbidir (`'www'`); `''` və ya `'@'` zonanın kökü (apex) deməkdir, `'www.example.com'` kimi tam ad isə öz label-inə qədər qısaldılır. Dəyişikliklər dərhal tətbiq olunur; bir neçə dəyişikliyi toplamaq üçün `apply = false` ötürün və sonda bir dəfə `apply_resource_records` çağırın. TTL 1–86400 saniyədir.
+
+Avtomatik tətbiq uğursuz olarsa, metod `OK` əvəzinə tətbiq xətasını qaytarır (dəyişiklik canlıya keçmir, toplanmış vəziyyətdə qalır). Nəticə faktiki göndərilən böyük hərfə çevrilmiş tipi və TTL-i bildirir.
 
 Gateway ad + tip cütünü bir **set** kimi saxlayır: set-in yazılması onun bütün dəyərlərini əvəz edir, bir dəyərin silinməsi isə bütün set-i silir. `*_resource_record_value` metodları oxu-birləşdir-yaz əməliyyatını sizin əvəzinizə edir.
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### URL yönləndirməsi
 
-Yönləndirmə tipləri: `'Standard'` (adi yönləndirmə) və `'Frame'` (maskalanmış).
+Yönləndirmə tipləri: `'Standard'` (adi yönləndirmə) və `'Frame'` (maskalanmış). Heç nə qurulmadıqda gateway `Redirect information not found` cavabını verir: bu halda `get_forwarding` `'Enabled' => false` bildirir, `delete_forwarding` isə `'Removed' => false` ilə uğurla tamamlanır. Naməlum domen kimi hər hansı digər xəta isə xəta kimi qaytarılır.
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding (heç nə qurulmayıbsa, xəta deyil, Enabled => false qaytarılır)
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding (heç nə qurulmamışdısa, Removed => false)
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### Əlaqə məlumatının yoxlanılması
 
-Əlaqə məlumatını qeydiyyat zamanı olduğu kimi tamamlayır və normallaşdırır: adlardan rəqəmlər və durğu işarələri silinir, çatışmayan ştat (state) şəhərlə əvəz olunur, ölkə adları ISO kodlarına çevrilir, telefon nömrələri isə nömrə və ölkə koduna ayrılır.
+Əlaqə məlumatını qeydiyyat zamanı olduğu kimi tamamlayır və normallaşdırır: adlardan rəqəmlər və durğu işarələri silinir, çatışmayan ştat (state) şəhərlə əvəz olunur, ölkə adları ISO kodlarına çevrilir, telefon nömrələri isə nömrə və ölkə koduna ayrılır. Öz `+` və ya `00` beynəlxalq kodu ilə yazılmış nömrə, başqa `PhoneCountryCode` verilsə belə, həmin kodu saxlayır (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')

@@ -107,9 +107,11 @@ end
 ```
 
 - تكون قيمة `Code` بالصيغة `API_<HTTP status>` لأخطاء البوابة (`API_400` و `API_401` و `API_429` و `API_500` و...). تعني الاستجابة `301`/`302` أن بيانات الاعتماد خاطئة (`Invalid API credentials`).
-- يتحول جسم الخطأ الفارغ إلى رسالة مقروءة مثل `HTTP 429 - Too Many Requests`.
+- عندما ترسل البوابة رمز خطأ خاصًا بها، يحمله الغلاف أيضًا في الحقل `GatewayCode` (على سبيل المثال `'GatewayCode' => 'Dna.DomainService:Domain:10007'`)، بحيث يمكنك التمييز بين خطأ `API_404` وآخر.
+- يتحول جسم الخطأ الفارغ إلى رسالة مقروءة مثل `HTTP 429 - Too Many Requests`. لا يُستخدم جسم الاستجابة الخام كرسالة أبدًا عندما تكون رسالة البوابة نصًا عامًا نمطيًا؛ بل يُستخدم بدلًا منه نص ثابت يذكر رمز البوابة.
 - تُدمج أخطاء التحقق من الحقول في `Details`، على سبيل المثال `Admin PostalCode - 'PostalCode' is required`.
-- إخفاقات الشبكة أخطاء، ولا تكون أبدًا نجاحًا فارغًا. تكون رسالة انتهاء المهلة `Could not reach the DomainNameAPI service: the connection timed out. (...)`؛ أما إخفاقات النقل الأخرى فتكون رسالتها `Curl error during request: ...`. تتبع رموزها أرقام curl ‏(`API_28` لانتهاء المهلة، و `API_6` لـ DNS، و `API_7` لرفض الاتصال، و `API_35`/`API_60` لـ TLS)؛ ويحتوي `get_parsed_response_data['Code']` على `CURL_<n>`.
+- إخفاقات الشبكة أخطاء، ولا تكون أبدًا نجاحًا فارغًا. تكون رسالة انتهاء المهلة `Could not reach the DomainNameAPI service: the connection timed out. (...)`؛ أما إخفاقات النقل الأخرى فتكون رسالتها `Curl error during request: ...`. تكون رموزها بالصيغة `CURL_<n>` مع أرقام curl ‏(`CURL_28` لانتهاء المهلة، و `CURL_6` لـ DNS، و `CURL_7` لرفض الاتصال، و `CURL_35`/`CURL_60` لـ TLS، و `CURL_56` لإعادة تعيين الاتصال)؛ أما الصيغة `API_<n>` فمحجوزة لحالات HTTP.
+- عملية التسجيل أو النقل أو التجديد التي تجيب عنها البوابة بـ HTTP 200 ولكن مع `"success": false` تُعد رفضًا وليست نجاحًا: إذ تُرجع غلاف الخطأ بالرمز `REGISTER_DOMAIN` أو `TRANSFER_DOMAIN` أو `RENEW_DOMAIN` مع رسالة البوابة.
 - تحتفظ `get_current_balance` بغلافها الخاص: `'OperationResult' => 'FAILED'` مع `ErrorCode` و `OperationMessage`.
 - تُرجع `check_availability` قائمة عادية عند النجاح وغلاف الخطأ عند الفشل.
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### الرصيد الحالي
 
-`get_current_balance(currency = 'USD')` — `'USD'` أو `'TRY'` أو `'EUR'` أو `'GBP'`.
+`get_current_balance(currency = 'USD')` — يُبلغ الحساب عن رصيدَي `'USD'` و `'TRY'`. أما لأي عملة أخرى (`'EUR'` و `'GBP'` و...) فيفشل الاستدعاء مع `'ErrorCode' => 'BALANCE'` بدلًا من الإجابة بـ `0.00`.
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### التحقق من توفر النطاق
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — يكون `DomainName` في النتيجة هو الاسم دون اللاحقة `.tld` في نهايته.
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### تعديل خوادم الأسماء
 
-مرّر قائمة أو Hash (تُستخدم القيم).
+مرّر قائمة أو Hash (تُستخدم القيم). تُزال المسافات الزائدة من الأسماء، وتُحوَّل إلى أحرف صغيرة، وتُحذف النقطة في نهايتها، وتُزال القيم المكررة؛ وتُبلغ النتيجة عن هذه القائمة بعد توحيد صيغتها.
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### تعديل خصوصية النطاق
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — لا تُفعَّل الخصوصية إلا عندما تكون قيمة `status` هي `true` تمامًا.
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — يمكن أن تكون قيمة `status` هي `true`/`false` أو قيمة بأسلوب لوحات التحكم: القيم `1` و `'1'` و `'true'` و `'on'` و `'yes'` تُفعّل الخصوصية، وأي قيمة أخرى تُعطّلها. تُبلغ النتيجة عن القيمة المنطقية (boolean) بعد تحليلها. يُقبل المعامل `reason` للتوافق فقط ولكنه لا يُرسَل: إذ لا يوجد لدى البوابة حقل كهذا.
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### الحصول على جهات اتصال النطاق
+
+تُطابَق أنواع جهات الاتصال دون التمييز بين الأحرف الكبيرة والصغيرة (`admin`/`administrative`، و `tech`/`technical`، و `registrant`/`owner`، و `billing`)؛ أما الأنواع الأخرى التي يُرجعها السجل (Registry) فيُحتفظ بها بعد الأنواع القياسية الأربعة.
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # أي نوع آخر من جهات الاتصال يُرجعه السجل يأتي بعد هذه الأنواع الأربعة
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### نقل النطاق
 
-`transfer(domain, epp_code, period, contacts = {})` — كما في الواجهة (facade) الخاصة بـ php-dna، يُرسَل طلب النقل دون جهات الاتصال (تحتفظ البوابة بجهات الاتصال الحالية).
+`transfer(domain, epp_code, period)` — لا يُرسل طلب النقل جهات الاتصال أبدًا: إذ يتولى المسجّل (registrar) أمرها، لذا يحمل الطلب دائمًا قائمة جهات اتصال فارغة ولا تأخذ الدالة أي وسيط لجهات الاتصال. حدّث جهات الاتصال باستخدام `save_contacts` بعد اكتمال النقل.
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### منطقة DNS
 
 أنواع السجلات المدعومة: `A` و `AAAA` و `ALIAS` و `CAA` و `CNAME` و `DS` و `MX` و `NAPTR` و `PTR` و `SRV` و `TLSA` و `TXT` (تُرفض الأنواع الأخرى قبل إجراء أي استدعاء). الأسماء نسبية (`'www'`)؛ وتمثّل `''` أو `'@'` جذر المنطقة (apex)، ويُختزل الاسم الكامل مثل `'www.example.com'` إلى التسمية (label) الخاصة به. تُطبَّق التغييرات فورًا؛ مرّر `apply = false` لتجهيز عدة تغييرات ثم استدعِ `apply_resource_records` مرة واحدة. تتراوح قيمة TTL بين 1 و 86400 ثانية.
+
+إذا فشل التطبيق التلقائي، تُرجع الدالة خطأ التطبيق (ويبقى التغيير مُجهَّزًا وغير مفعّل) بدلًا من `OK`. تُبلغ النتيجة عن النوع بأحرف كبيرة وعن قيمة TTL اللذين أُرسلا فعليًا.
 
 تخزّن البوابة كل اسم + نوع على شكل **مجموعة (set)** واحدة: كتابة مجموعة تستبدل جميع قيمها، وحذف قيمة واحدة يحذف المجموعة بأكملها. تتولى دوال `*_resource_record_value` تنفيذ عملية القراءة ثم الدمج ثم الكتابة نيابةً عنك.
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### إعادة توجيه URL
 
-أنواع إعادة التوجيه: `'Standard'` (إعادة توجيه عادية) و `'Frame'` (مُقنّعة).
+أنواع إعادة التوجيه: `'Standard'` (إعادة توجيه عادية) و `'Frame'` (مُقنّعة). تجيب البوابة بـ `Redirect information not found` عندما لا يكون هناك أي إعداد: عندها تُبلغ `get_forwarding` عن `'Enabled' => false`، وتنجح `delete_forwarding` مع `'Removed' => false`. أما أي خطأ آخر، مثل نطاق غير معروف، فيُرجَع كخطأ.
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding (عند عدم وجود أي إعداد تكون النتيجة Enabled => false، وليست خطأً)
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding (القيمة Removed => false عند عدم وجود أي إعداد)
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### التحقق من جهة اتصال
 
-تستكمل جهة الاتصال وتوحّد صيغتها بالطريقة نفسها التي يتبعها التسجيل: تُزال الأرقام وعلامات الترقيم من الأسماء، وتُستخدم المدينة مكان الولاية المفقودة، وتتحول أسماء الدول إلى رموز ISO، وتُقسَّم أرقام الهواتف إلى الرقم ورمز الدولة.
+تستكمل جهة الاتصال وتوحّد صيغتها بالطريقة نفسها التي يتبعها التسجيل: تُزال الأرقام وعلامات الترقيم من الأسماء، وتُستخدم المدينة مكان الولاية المفقودة، وتتحول أسماء الدول إلى رموز ISO، وتُقسَّم أرقام الهواتف إلى الرقم ورمز الدولة. الرقم المكتوب مع رمز الاتصال الدولي الخاص به بالبادئة `+` أو `00` يحتفظ بذلك الرمز حتى لو أُعطيت قيمة أخرى لـ `PhoneCountryCode` ‏(`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')

@@ -107,9 +107,11 @@ end
 ```
 
 - 对于网关错误，`Code` 为 `API_<HTTP 状态码>`（`API_400`、`API_401`、`API_429`、`API_500` 等）。`301`/`302` 响应表示凭据错误（`Invalid API credentials`）。
-- 空的错误响应体会被转换为可读的消息，例如 `HTTP 429 - Too Many Requests`。
+- 当网关返回其自身的错误代码时，信封中还会以 `GatewayCode` 携带该代码（例如 `'GatewayCode' => 'Dna.DomainService:Domain:10007'`），以便您区分不同的 `API_404`。
+- 空的错误响应体会被转换为可读的消息，例如 `HTTP 429 - Too Many Requests`。当网关的消息是通用模板文本时，绝不会将原始响应体用作消息，而是改用一段注明网关代码的固定文本。
 - 字段校验错误会被展平到 `Details` 中，例如 `Admin PostalCode - 'PostalCode' is required`。
-- 网络故障一律视为错误，绝不会作为空的成功结果返回。超时的消息为 `Could not reach the DomainNameAPI service: the connection timed out. (...)`；其他传输层故障的消息为 `Curl error during request: ...`。其错误代码沿用 curl 的编号（`API_28` 超时、`API_6` DNS、`API_7` 连接被拒绝、`API_35`/`API_60` TLS）；`get_parsed_response_data['Code']` 中保存的是 `CURL_<n>`。
+- 网络故障一律视为错误，绝不会作为空的成功结果返回。超时的消息为 `Could not reach the DomainNameAPI service: the connection timed out. (...)`；其他传输层故障的消息为 `Curl error during request: ...`。其错误代码为采用 curl 编号的 `CURL_<n>`（`CURL_28` 超时、`CURL_6` DNS、`CURL_7` 连接被拒绝、`CURL_35`/`CURL_60` TLS、`CURL_56` 连接重置）；`API_<n>` 仅保留给 HTTP 状态码使用。
+- 如果网关对注册、转移或续费请求返回 HTTP 200 但带有 `"success": false`，这表示请求被拒绝，而不是成功：此时会返回错误信封，代码为 `REGISTER_DOMAIN`、`TRANSFER_DOMAIN` 或 `RENEW_DOMAIN`，并附带网关的消息。
 - `get_current_balance` 使用自己的信封格式：`'OperationResult' => 'FAILED'`，并带有 `ErrorCode` 和 `OperationMessage`。
 - `check_availability` 成功时返回普通列表，失败时返回错误信封。
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### 当前余额
 
-`get_current_balance(currency = 'USD')` — 可选 `'USD'`、`'TRY'`、`'EUR'` 或 `'GBP'`。
+`get_current_balance(currency = 'USD')` — 账户报告 `'USD'` 和 `'TRY'` 余额。对于其他任何货币（`'EUR'`、`'GBP'` 等），调用会失败并返回 `'ErrorCode' => 'BALANCE'`，而不是返回 `0.00`。
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### 域名可用性检查
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — 结果中的 `DomainName` 是不带末尾 `.tld` 的名称。
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### 修改名称服务器
 
-可传入列表或 Hash（使用其中的值）。
+可传入列表或 Hash（使用其中的值）。名称会被去除首尾空白、转换为小写、去掉末尾的点并去重；返回结果中报告的是规范化后的列表。
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### 修改域名隐私保护
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — 仅当 `status` 严格等于 `true` 时才会开启隐私保护。
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` 可以是 `true`/`false`，也可以是面板风格的值：`1`、`'1'`、`'true'`、`'on'` 和 `'yes'` 表示开启隐私保护，其他任何值都表示关闭。返回结果中报告的是解析后的布尔值。`reason` 参数仅为兼容而保留，并不会发送：网关没有此字段。
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### 获取域名联系人
+
+联系人类型按不区分大小写的方式匹配（`admin`/`administrative`、`tech`/`technical`、`registrant`/`owner`、`billing`）；注册局返回的其他类型会保留在这四种标准类型之后。
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # 注册局返回的其他任何联系人类型会排在这四种之后
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### 域名转移
 
-`transfer(domain, epp_code, period, contacts = {})` — 与 php-dna 的外观接口（facade）一样，转移请求不携带联系人信息发送（网关会保留当前的联系人）。
+`transfer(domain, epp_code, period)` — 转移请求从不发送联系人信息：联系人由注册商处理，因此请求中始终携带空的联系人列表，该方法也不接受联系人参数。转移完成后，请使用 `save_contacts` 更新联系人。
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### DNS 区域
 
 支持的记录类型：`A`、`AAAA`、`ALIAS`、`CAA`、`CNAME`、`DS`、`MX`、`NAPTR`、`PTR`、`SRV`、`TLSA`、`TXT`（其他类型会在发出任何调用之前被拒绝）。名称使用相对形式（`'www'`）；`''` 或 `'@'` 表示区域顶点（apex），而 `'www.example.com'` 这样的完整名称会被缩减为其标签部分。更改会立即生效；如需暂存多项更改，请传入 `apply = false`，最后调用一次 `apply_resource_records`。TTL 范围为 1–86400 秒。
+
+如果自动应用（apply）失败，方法会返回该应用错误（更改仍处于暂存状态，尚未生效），而不是 `OK`。返回结果中报告的是实际发送的大写类型和 TTL。
 
 网关将“名称 + 类型”作为一个**集合（set）**存储：写入一个集合会替换其中的所有值，而删除其中一个值会删除整个集合。`*_resource_record_value` 系列方法会替您完成“读取-合并-写入”的过程。
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### URL 转发
 
-转发类型：`'Standard'`（普通重定向）和 `'Frame'`（隐藏/框架转发）。
+转发类型：`'Standard'`（普通重定向）和 `'Frame'`（隐藏/框架转发）。未配置任何转发时，网关会返回 `Redirect information not found`：此时 `get_forwarding` 报告 `'Enabled' => false`，`delete_forwarding` 则成功返回并带有 `'Removed' => false`。其他任何错误（例如未知域名）都会作为错误返回。
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding（未配置转发时返回 Enabled => false，而不是错误）
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding（未配置转发时 Removed => false）
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### 校验联系人
 
-按照注册时相同的方式补全并规范化联系人信息：去除姓名中的数字和标点符号，缺失的州/省会以城市填充，国家名称会转换为 ISO 代码，电话号码会被拆分为号码和国家代码。
+按照注册时相同的方式补全并规范化联系人信息：去除姓名中的数字和标点符号，缺失的州/省会以城市填充，国家名称会转换为 ISO 代码，电话号码会被拆分为号码和国家代码。如果号码本身带有以 `+` 或 `00` 开头的国际区号，即使另外提供了 `PhoneCountryCode`，也会保留号码自带的区号（`'+1 202 555 0100'` → `'2025550100'` / `'1'`）。
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')

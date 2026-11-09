@@ -107,9 +107,11 @@ Methoden genereren nooit een exception bij API- of netwerkproblemen. Een mislukt
 ```
 
 - `Code` is `API_<HTTP status>` voor gatewayfouten (`API_400`, `API_401`, `API_429`, `API_500`, ...). Een `301`/`302`-antwoord betekent ongeldige inloggegevens (`Invalid API credentials`).
-- Een lege foutbody wordt omgezet in een leesbare melding zoals `HTTP 429 - Too Many Requests`.
+- Wanneer de gateway een eigen foutcode meestuurt, bevat de envelop die ook als `GatewayCode` (bijv. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`), zodat u de ene `API_404` van de andere kunt onderscheiden.
+- Een lege foutbody wordt omgezet in een leesbare melding zoals `HTTP 429 - Too Many Requests`. Wanneer de melding van de gateway een standaardtekst is, wordt de ruwe antwoordbody nooit als melding gebruikt; in plaats daarvan wordt een vaste tekst gebruikt die de gatewaycode noemt.
 - Validatiefouten van velden worden samengevoegd in `Details`, bijvoorbeeld `Admin PostalCode - 'PostalCode' is required`.
-- Netwerkstoringen zijn fouten, nooit een leeg succes. Een time-out luidt `Could not reach the DomainNameAPI service: the connection timed out. (...)`; andere transportfouten luiden `Curl error during request: ...`. Hun codes volgen de nummers van curl (`API_28` time-out, `API_6` DNS, `API_7` verbinding geweigerd, `API_35`/`API_60` TLS); `get_parsed_response_data['Code']` bevat `CURL_<n>`.
+- Netwerkstoringen zijn fouten, nooit een leeg succes. Een time-out luidt `Could not reach the DomainNameAPI service: the connection timed out. (...)`; andere transportfouten luiden `Curl error during request: ...`. Hun codes zijn `CURL_<n>` met de nummers van curl (`CURL_28` time-out, `CURL_6` DNS, `CURL_7` verbinding geweigerd, `CURL_35`/`CURL_60` TLS, `CURL_56` reset); `API_<n>` is gereserveerd voor HTTP-statussen.
+- Een registratie, transfer of verlenging die de gateway beantwoordt met HTTP 200 maar `"success": false` is een weigering, geen succes: de methode geeft de fout-envelop terug met code `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` of `RENEW_DOMAIN` en de melding van de gateway.
 - `get_current_balance` behoudt zijn eigen envelop: `'OperationResult' => 'FAILED'` met `ErrorCode` en `OperationMessage`.
 - `check_availability` geeft bij succes een gewone lijst terug en bij een fout de fout-envelop.
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### Huidig saldo
 
-`get_current_balance(currency = 'USD')` — `'USD'`, `'TRY'`, `'EUR'` of `'GBP'`.
+`get_current_balance(currency = 'USD')` — het account rapporteert saldi in `'USD'` en `'TRY'`. Voor elke andere valuta (`'EUR'`, `'GBP'`, ...) mislukt de aanroep met `'ErrorCode' => 'BALANCE'` in plaats van `0.00` terug te geven.
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### Beschikbaarheid van domeinen controleren
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — `DomainName` in het resultaat is de naam zonder de afsluitende `.tld`.
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### Nameservers wijzigen
 
-Geef een lijst of een Hash mee (de waarden worden gebruikt).
+Geef een lijst of een Hash mee (de waarden worden gebruikt). Namen worden getrimd, naar kleine letters omgezet, van een afsluitende punt ontdaan en ontdubbeld; het resultaat toont die genormaliseerde lijst.
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### Domeinprivacy wijzigen
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — privacy wordt alleen ingeschakeld wanneer `status` exact `true` is.
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` mag `true`/`false` zijn of een waarde in panelstijl: `1`, `'1'`, `'true'`, `'on'` en `'yes'` schakelen privacy in, al het andere schakelt het uit. Het resultaat toont de geparste boolean. `reason` wordt voor compatibiliteit geaccepteerd maar niet verstuurd: de gateway kent zo'n veld niet.
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### Domeincontacten ophalen
+
+Contacttypes worden hoofdletterongevoelig herkend (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`); andere types die het register teruggeeft, blijven behouden na de vier standaardtypes.
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # elk ander contacttype dat het register teruggeeft, volgt na deze vier
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### Domeintransfer
 
-`transfer(domain, epp_code, period, contacts = {})` — net als bij de facade van php-dna wordt de transfer zonder contacten verstuurd (de gateway behoudt de huidige).
+`transfer(domain, epp_code, period)` — een transfer verstuurt nooit contacten: de registrar regelt die, dus het verzoek bevat altijd een lege contactlijst en de methode heeft geen contactenargument. Werk de contacten bij met `save_contacts` zodra de transfer is voltooid.
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### DNS-zone
 
 Ondersteunde recordtypes: `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (andere types worden geweigerd voordat er een aanroep plaatsvindt). Namen zijn relatief (`'www'`); `''` of `'@'` is de apex van de zone, en een volledige naam zoals `'www.example.com'` wordt teruggebracht tot het label. Wijzigingen worden direct toegepast; geef `apply = false` mee om er meerdere klaar te zetten en roep daarna eenmaal `apply_resource_records` aan. De TTL is 1–86400 seconden.
+
+Als het automatische toepassen mislukt, geeft de methode de fout van het toepassen terug (de wijziging blijft klaargezet, niet live) in plaats van `OK`. Het resultaat toont het in hoofdletters omgezette type en de TTL die daadwerkelijk zijn verstuurd.
 
 De gateway slaat een naam + type op als één **set**: het schrijven van een set vervangt al zijn waarden, en het verwijderen van één waarde verwijdert de hele set. De `*_resource_record_value`-methoden voeren het lezen-samenvoegen-schrijven voor u uit.
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### URL-doorsturing
 
-Doorstuurtypes: `'Standard'` (gewone omleiding) en `'Frame'` (gemaskeerd).
+Doorstuurtypes: `'Standard'` (gewone omleiding) en `'Frame'` (gemaskeerd). De gateway antwoordt `Redirect information not found` wanneer er niets is ingesteld: `get_forwarding` meldt dan `'Enabled' => false` en `delete_forwarding` slaagt met `'Removed' => false`. Elke andere fout, zoals een onbekend domein, wordt als fout teruggegeven.
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding (als er niets is ingesteld, geeft dit Enabled => false, geen fout)
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding (Removed => false als er niets was ingesteld)
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### Een contact valideren
 
-Vult een contact aan en normaliseert het op dezelfde manier als bij registratie: cijfers en leestekens worden uit namen verwijderd, een ontbrekende provincie/staat wordt de stad, landnamen worden ISO-codes en telefoonnummers worden gesplitst in nummer en landcode.
+Vult een contact aan en normaliseert het op dezelfde manier als bij registratie: cijfers en leestekens worden uit namen verwijderd, een ontbrekende provincie/staat wordt de stad, landnamen worden ISO-codes en telefoonnummers worden gesplitst in nummer en landcode. Een nummer dat met een eigen landnummer (`+` of `00`) is geschreven, behoudt dat landnummer, ook wanneer een andere `PhoneCountryCode` is opgegeven (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')

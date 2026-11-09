@@ -107,9 +107,11 @@ Metotlar API veya ağ sorunlarında asla exception fırlatmaz. Başarısız bir 
 ```
 
 - Gateway hatalarında `Code` değeri `API_<HTTP durum kodu>` biçimindedir (`API_400`, `API_401`, `API_429`, `API_500`, ...). `301`/`302` yanıtı hatalı kimlik bilgisi anlamına gelir (`Invalid API credentials`).
-- Boş bir hata gövdesi, `HTTP 429 - Too Many Requests` gibi okunabilir bir mesaja dönüştürülür.
+- Gateway kendi hata kodunu gönderdiğinde, zarf bu kodu `GatewayCode` olarak da taşır (örn. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`); böylece bir `API_404` hatasını diğerinden ayırt edebilirsiniz.
+- Boş bir hata gövdesi, `HTTP 429 - Too Many Requests` gibi okunabilir bir mesaja dönüştürülür. Gateway'in mesajı kalıp (boilerplate) bir metin olduğunda ham yanıt gövdesi asla mesaj olarak kullanılmaz; bunun yerine gateway kodunu belirten sabit bir metin kullanılır.
 - Alan doğrulama hataları `Details` içinde düz metne indirgenir, örn. `Admin PostalCode - 'PostalCode' is required`.
-- Ağ hataları her zaman hata olarak döner, asla boş bir başarı olarak dönmez. Zaman aşımı `Could not reach the DomainNameAPI service: the connection timed out. (...)` şeklinde, diğer taşıma (transport) hataları ise `Curl error during request: ...` şeklinde görünür. Kodları curl'ün numaralarını izler (`API_28` zaman aşımı, `API_6` DNS, `API_7` bağlantı reddedildi, `API_35`/`API_60` TLS); `get_parsed_response_data['Code']` ise `CURL_<n>` değerini tutar.
+- Ağ hataları her zaman hata olarak döner, asla boş bir başarı olarak dönmez. Zaman aşımı `Could not reach the DomainNameAPI service: the connection timed out. (...)` şeklinde, diğer taşıma (transport) hataları ise `Curl error during request: ...` şeklinde görünür. Kodları curl'ün numaralarıyla `CURL_<n>` biçimindedir (`CURL_28` zaman aşımı, `CURL_6` DNS, `CURL_7` bağlantı reddedildi, `CURL_35`/`CURL_60` TLS, `CURL_56` bağlantı sıfırlandı); `API_<n>` ise HTTP durum kodlarına ayrılmıştır.
+- Gateway'in HTTP 200 ile ama `"success": false` olarak yanıtladığı bir kayıt, transfer veya yenileme işlemi başarı değil, reddedilmedir: `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` veya `RENEW_DOMAIN` koduyla ve gateway'in mesajıyla birlikte hata zarfı döndürülür.
 - `get_current_balance` kendi zarf yapısını korur: `ErrorCode` ve `OperationMessage` ile birlikte `'OperationResult' => 'FAILED'`.
 - `check_availability` başarılı olduğunda düz bir liste, başarısız olduğunda hata zarfı döndürür.
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### Güncel bakiye
 
-`get_current_balance(currency = 'USD')` — `'USD'`, `'TRY'`, `'EUR'` veya `'GBP'`.
+`get_current_balance(currency = 'USD')` — hesap `'USD'` ve `'TRY'` bakiyelerini bildirir. Diğer herhangi bir para biriminde (`'EUR'`, `'GBP'`, ...) çağrı `0.00` döndürmek yerine `'ErrorCode' => 'BALANCE'` ile başarısız olur.
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### Alan adı uygunluğu kontrolü
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — sonuçtaki `DomainName`, sondaki `.tld` uzantısı olmadan alan adıdır.
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### Nameserver düzenlemesi
 
-Bir liste veya bir Hash verin (Hash'in değerleri kullanılır).
+Bir liste veya bir Hash verin (Hash'in değerleri kullanılır). İsimlerin baştaki ve sondaki boşlukları temizlenir, küçük harfe çevrilir, sondaki nokta kaldırılır ve tekrar edenler ayıklanır; sonuç bu normalize edilmiş listeyi bildirir.
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### Alan adı gizliliğini değiştirme
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — gizlilik yalnızca `status` değeri tam olarak `true` olduğunda açılır.
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` değeri `true`/`false` veya panel tarzı bir değer olabilir: `1`, `'1'`, `'true'`, `'on'` ve `'yes'` gizliliği açar, diğer her değer kapatır. Sonuç, ayrıştırılmış boolean değeri bildirir. `reason` uyumluluk için kabul edilir ancak gönderilmez: gateway'de böyle bir alan yoktur.
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### Alan adı kişi bilgilerini alma
+
+Kişi türleri büyük/küçük harf duyarsız olarak eşleştirilir (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`); kayıt kuruluşunun (registry) döndürdüğü diğer türler dört standart türden sonra korunur.
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # kayıt kuruluşunun döndürdüğü diğer kişi türleri bu dördünün ardından gelir
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### Alan adı transferi
 
-`transfer(domain, epp_code, period, contacts = {})` — php-dna'nın facade'ında olduğu gibi transfer, kişi bilgileri olmadan gönderilir (gateway mevcut kişi bilgilerini korur).
+`transfer(domain, epp_code, period)` — transfer asla kişi bilgisi göndermez: kişi bilgilerini kayıt firması (registrar) yönetir; bu nedenle istek her zaman boş bir kişi listesi taşır ve metot kişi bilgisi argümanı almaz. Transfer tamamlandıktan sonra kişi bilgilerini `save_contacts` ile güncelleyin.
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### DNS zone
 
 Desteklenen kayıt türleri: `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (diğer türler herhangi bir çağrı yapılmadan reddedilir). İsimler görelidir (`'www'`); `''` veya `'@'` zone kökünü (apex) ifade eder, `'www.example.com'` gibi tam bir isim ise kendi etiketine indirgenir. Değişiklikler hemen uygulanır; birden fazla değişikliği biriktirmek için `apply = false` verin ve ardından `apply_resource_records` metodunu bir kez çağırın. TTL 1–86400 saniye aralığındadır.
+
+Otomatik uygulama (apply) başarısız olursa metot `OK` yerine uygulama hatasını döndürür (değişiklik canlıya alınmaz, beklemede kalır). Sonuç, gerçekte gönderilen büyük harfe çevrilmiş türü ve TTL değerini bildirir.
 
 Gateway, bir isim + tür ikilisini tek bir **küme (set)** olarak saklar: bir kümeye yazmak kümenin tüm değerlerini değiştirir, bir değeri silmek ise kümenin tamamını siler. `*_resource_record_value` metotları okuma-birleştirme-yazma işlemini sizin yerinize yapar.
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### URL yönlendirme
 
-Yönlendirme türleri: `'Standard'` (düz yönlendirme) ve `'Frame'` (maskeli).
+Yönlendirme türleri: `'Standard'` (düz yönlendirme) ve `'Frame'` (maskeli). Yapılandırılmış bir yönlendirme yoksa gateway `Redirect information not found` yanıtını verir: bu durumda `get_forwarding` `'Enabled' => false` bildirir, `delete_forwarding` ise `'Removed' => false` ile başarılı döner. Bilinmeyen bir alan adı gibi diğer tüm hatalar hata olarak döndürülür.
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding (yapılandırılmış yönlendirme yoksa hata değil, Enabled => false döner)
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding (hiçbir şey yapılandırılmamışsa Removed => false)
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### Kişi bilgisini doğrulama
 
-Bir kişi kaydını, kayıt işleminin yaptığı şekilde tamamlar ve normalize eder: isimlerden rakamlar ve noktalama işaretleri çıkarılır, eksik eyalet/il bilgisi şehir ile doldurulur, ülke adları ISO kodlarına dönüştürülür ve telefon numaraları numara ve ülke kodu olarak ayrılır.
+Bir kişi kaydını, kayıt işleminin yaptığı şekilde tamamlar ve normalize eder: isimlerden rakamlar ve noktalama işaretleri çıkarılır, eksik eyalet/il bilgisi şehir ile doldurulur, ülke adları ISO kodlarına dönüştürülür ve telefon numaraları numara ve ülke kodu olarak ayrılır. Kendi `+` veya `00` ülke koduyla yazılmış bir numara, farklı bir `PhoneCountryCode` verilmiş olsa bile kendi kodunu korur (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')

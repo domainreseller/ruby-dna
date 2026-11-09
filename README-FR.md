@@ -107,9 +107,11 @@ Les méthodes ne lèvent jamais d'exception pour les problèmes d'API ou de rés
 ```
 
 - `Code` vaut `API_<statut HTTP>` pour les erreurs de la passerelle (`API_400`, `API_401`, `API_429`, `API_500`, ...). Une réponse `301`/`302` signifie des identifiants incorrects (`Invalid API credentials`).
-- Un corps d'erreur vide devient un message lisible tel que `HTTP 429 - Too Many Requests`.
+- Lorsque la passerelle envoie son propre code d'erreur, l'enveloppe le transporte également dans `GatewayCode` (par ex. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`), ce qui permet de distinguer un `API_404` d'un autre.
+- Un corps d'erreur vide devient un message lisible tel que `HTTP 429 - Too Many Requests`. Le corps brut de la réponse n'est jamais utilisé comme message lorsque le message de la passerelle est générique ; un texte stable mentionnant le code de la passerelle est utilisé à la place.
 - Les erreurs de validation des champs sont aplaties dans `Details`, par ex. `Admin PostalCode - 'PostalCode' is required`.
-- Les défaillances réseau sont des erreurs, jamais un succès vide. Un dépassement de délai donne `Could not reach the DomainNameAPI service: the connection timed out. (...)` ; les autres défaillances de transport donnent `Curl error during request: ...`. Leurs codes suivent les numéros de curl (`API_28` délai dépassé, `API_6` DNS, `API_7` connexion refusée, `API_35`/`API_60` TLS) ; `get_parsed_response_data['Code']` contient `CURL_<n>`.
+- Les défaillances réseau sont des erreurs, jamais un succès vide. Un dépassement de délai donne `Could not reach the DomainNameAPI service: the connection timed out. (...)` ; les autres défaillances de transport donnent `Curl error during request: ...`. Leurs codes sont de la forme `CURL_<n>` avec les numéros de curl (`CURL_28` délai dépassé, `CURL_6` DNS, `CURL_7` connexion refusée, `CURL_35`/`CURL_60` TLS, `CURL_56` connexion réinitialisée) ; `API_<n>` est réservé aux statuts HTTP.
+- Un enregistrement, un transfert ou un renouvellement auquel la passerelle répond par HTTP 200 mais avec `"success": false` est un refus, pas un succès : la méthode renvoie l'enveloppe d'erreur avec le code `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` ou `RENEW_DOMAIN` et le message de la passerelle.
 - `get_current_balance` conserve sa propre enveloppe : `'OperationResult' => 'FAILED'` avec `ErrorCode` et `OperationMessage`.
 - `check_availability` renvoie une simple liste en cas de succès et l'enveloppe d'erreur en cas d'échec.
 
@@ -196,8 +198,8 @@ dna.get_reseller_details
   'currency' => 'USD',
   'symbol'   => '$',
   'balances' => [
-    { 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.5', 'currency' => 'TL',  'symbol' => 'TL' }
+    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
+    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
   ]
 }
 ```
@@ -206,7 +208,7 @@ dna.get_reseller_details
 
 #### Solde actuel
 
-`get_current_balance(currency = 'USD')` — `'USD'`, `'TRY'`, `'EUR'` ou `'GBP'`.
+`get_current_balance(currency = 'USD')` — le compte indique des soldes en `'USD'` et en `'TRY'`. Pour toute autre devise (`'EUR'`, `'GBP'`, ...), l'appel échoue avec `'ErrorCode' => 'BALANCE'` au lieu de répondre `0.00`.
 
 ```ruby
 dna.get_current_balance('USD')
@@ -226,6 +228,17 @@ dna.get_current_balance('USD')
   'CurrencyName'     => 'USD',
   'CurrencySymbol'   => '$'
 }
+# get_current_balance('EUR')
+{
+  'ErrorCode'        => 'BALANCE',
+  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
+  'OperationResult'  => 'FAILED',
+  'Balance'          => '0.00',
+  'CurrencyId'       => 3,
+  'CurrencyInfo'     => nil,
+  'CurrencyName'     => 'EUR',
+  'CurrencySymbol'   => '€'
+}
 ```
 
 </details>
@@ -236,7 +249,7 @@ dna.get_current_balance('USD')
 
 #### Vérification de disponibilité de domaine
 
-`check_availability(domains, extensions, period, command = 'create')`
+`check_availability(domains, extensions, period, command = 'create')` — dans le résultat, `DomainName` est le nom sans son suffixe `.tld`.
 
 ```ruby
 dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
@@ -446,7 +459,7 @@ dna.sync_from_registry('example.com')
 
 #### Modification des serveurs de noms
 
-Passez une liste ou un Hash (ce sont les valeurs qui sont utilisées).
+Passez une liste ou un Hash (ce sont les valeurs qui sont utilisées). Les noms sont débarrassés de leurs espaces, mis en minuscules, privés de leur point final et dédoublonnés ; le résultat renvoie cette liste normalisée.
 
 ```ruby
 dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
@@ -493,7 +506,7 @@ dna.disable_theft_protection_lock('example.com')
 
 #### Modifier la protection de la vie privée du domaine
 
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — la protection de la vie privée n'est activée que lorsque `status` vaut exactement `true`.
+`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` peut valoir `true`/`false` ou une valeur de type panel : `1`, `'1'`, `'true'`, `'on'` et `'yes'` activent la protection de la vie privée, toute autre valeur la désactive. Le résultat renvoie le booléen interprété. `reason` est accepté pour des raisons de compatibilité mais n'est pas envoyé : la passerelle ne possède pas ce champ.
 
 ```ruby
 dna.modify_privacy_protection_status('example.com', true, 'Owner request')
@@ -509,6 +522,8 @@ dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 </details>
 
 #### Obtenir les contacts du domaine
+
+Les types de contact sont reconnus sans tenir compte de la casse (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`) ; les autres types renvoyés par le registre sont conservés après les quatre types standard.
 
 ```ruby
 dna.get_contacts('example.com')
@@ -532,6 +547,7 @@ dna.get_contacts('example.com')
         'Additional' => {}
       },
       'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
+      # tout autre type de contact renvoyé par le registre suit ces quatre-là
     }
   },
   'result' => 'OK'
@@ -615,7 +631,7 @@ dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
 
 #### Transfert de domaine
 
-`transfer(domain, epp_code, period, contacts = {})` — comme dans la façade de php-dna, le transfert est envoyé sans contacts (la passerelle conserve les contacts actuels).
+`transfer(domain, epp_code, period)` — un transfert n'envoie jamais de contacts : c'est le registraire qui les gère, la requête contient donc toujours une liste de contacts vide et la méthode ne prend pas d'argument de contacts. Mettez à jour les contacts avec `save_contacts` une fois le transfert terminé.
 
 ```ruby
 dna.transfer('example.com', 'Xy9#mK2$', 3)
@@ -681,6 +697,8 @@ dna.reject_transfer('example.com')
 ### Zone DNS
 
 Types d'enregistrements pris en charge : `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (les autres types sont rejetés avant tout appel). Les noms sont relatifs (`'www'`) ; `''` ou `'@'` désigne l'apex de la zone, et un nom complet tel que `'www.example.com'` est réduit à son libellé. Les modifications sont appliquées immédiatement ; passez `apply = false` pour en préparer plusieurs, puis appelez `apply_resource_records` une seule fois. Le TTL est compris entre 1 et 86400 secondes.
+
+Si l'application automatique échoue, la méthode renvoie l'erreur d'application (la modification reste préparée, mais n'est pas en ligne) au lieu de `OK`. Le résultat indique le type en majuscules et le TTL réellement envoyés.
 
 La passerelle stocke un couple nom + type comme un seul **ensemble** (set) : écrire un ensemble remplace toutes ses valeurs, et supprimer une valeur supprime l'ensemble entier. Les méthodes `*_resource_record_value` effectuent pour vous la séquence lecture-fusion-écriture.
 
@@ -786,7 +804,7 @@ dna.apply_resource_records('example.com')
 
 ### Redirection d'URL
 
-Types de redirection : `'Standard'` (redirection simple) et `'Frame'` (masquée).
+Types de redirection : `'Standard'` (redirection simple) et `'Frame'` (masquée). La passerelle répond `Redirect information not found` lorsqu'aucune redirection n'est configurée : `get_forwarding` renvoie alors `'Enabled' => false` et `delete_forwarding` réussit avec `'Removed' => false`. Toute autre erreur, par exemple un domaine inconnu, est renvoyée comme une erreur.
 
 ```ruby
 dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
@@ -802,8 +820,8 @@ dna.delete_forwarding('example.com')
 { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding (sans configuration, renvoie Enabled => false, pas une erreur)
 { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding (Removed => false si rien n'était configuré)
+{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
 ```
 
 </details>
@@ -821,7 +839,7 @@ dna.is_tr_tld('example.com')    # => false
 
 #### Valider un contact
 
-Complète et normalise un contact de la même manière que l'enregistrement : les chiffres et la ponctuation sont retirés des noms, un état (State) manquant prend la valeur de la ville, les noms de pays deviennent des codes ISO et les numéros de téléphone sont séparés en numéro et indicatif pays.
+Complète et normalise un contact de la même manière que l'enregistrement : les chiffres et la ponctuation sont retirés des noms, un état (State) manquant prend la valeur de la ville, les noms de pays deviennent des codes ISO et les numéros de téléphone sont séparés en numéro et indicatif pays. Un numéro écrit avec son propre indicatif `+` ou `00` conserve cet indicatif même si un autre `PhoneCountryCode` a été fourni (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
 
 ```ruby
 dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')
