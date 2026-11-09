@@ -20,4 +20,4 @@ pp result
 # { 'result' => 'OK', 'id' => 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'active' => true, 'name' => 'example-reseller',
 #   'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$',
 #   'balances' => [{ 'balance' => '601.64', 'currency' => 'USD', 'symbol' => '$' },
-#                  { 'balance' => '1250.5', 'currency' => 'TL', 'symbol' => 'TL' }] }
+#                  { 'balance' => '1250.50', 'currency' => 'TL', 'symbol' => 'TL' }] }

@@ -31,7 +31,8 @@ module DomainNameApi
       'TLD is not supported',
       'Invalid API credentials',
       'could not be found',
-      'Insufficent reseller balance'
+      'Insufficent reseller balance',
+      'Redirect information not found'
     ].freeze
 
     IP_CACHE_TTL = 512

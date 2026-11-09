@@ -13,7 +13,8 @@ api_key     = 'your-api-key'                         # API Key
 dna = DomainNameApi::Client.new(reseller_id, api_key)
 # Test (OTE) environment: DomainNameApi::Client.new(reseller_id, api_key, true)
 
-# Currency: 'USD' (default), 'TRY', 'EUR' or 'GBP'.
+# The account reports 'USD' (default) and 'TRY' balances; other currencies
+# fail with 'ErrorCode' => 'BALANCE'.
 result = dna.get_current_balance('USD')
 pp result
 

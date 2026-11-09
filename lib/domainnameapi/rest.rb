@@ -198,13 +198,13 @@ module DomainNameApi
         resp['id'] = response['resellerId']
         resp['active'] = true
         resp['name'] = Php.get(response, 'resellerName') || ''
-        usd = Php.to_s(Php.get(response, 'usdBalance') || 0)
+        usd = Php.number_format(Php.get(response, 'usdBalance') || 0, 2)
         resp['balance'] = usd
         resp['currency'] = 'USD'
         resp['symbol'] = '$'
         resp['balances'] = [
           { 'balance' => usd, 'currency' => 'USD', 'symbol' => '$' },
-          { 'balance' => Php.to_s(Php.get(response, 'tryBalance') || 0), 'currency' => 'TL', 'symbol' => 'TL' }
+          { 'balance' => Php.number_format(Php.get(response, 'tryBalance') || 0, 2), 'currency' => 'TL', 'symbol' => 'TL' }
         ]
       else
         resp['result'] = RESULT_ERROR
@@ -228,6 +228,19 @@ module DomainNameApi
       begin
         response = request('GET', 'deposit/accounts/me', { 'currency' => currency_name })
         balance_key = "#{Php.lower(currency_id)}Balance"
+        unless response.is_a?(Hash) && response.key?(balance_key)
+          # The account only reports USD and TRY balances.
+          return {
+            'ErrorCode' => 'BALANCE',
+            'OperationMessage' => "No #{currency_name} balance is reported for this account. Available: USD, TRY.",
+            'OperationResult' => 'FAILED',
+            'Balance' => '0.00',
+            'CurrencyId' => mapped['id'],
+            'CurrencyInfo' => nil,
+            'CurrencyName' => mapped['name'],
+            'CurrencySymbol' => mapped['symbol']
+          }
+        end
         {
           'ErrorCode' => 0,
           'OperationMessage' => 'Command completed succesfully.',
@@ -286,7 +299,9 @@ module DomainNameApi
           end
           tld = Php.lower(raw_tld)
           domain_raw = Php.get(item, 'domainName') || ''
-          domain_name = Php.lower(domain_raw).gsub(".#{tld}", '')
+          lower = Php.lower(domain_raw)
+          suffix = ".#{tld}"
+          domain_name = tld != '' && lower.end_with?(suffix) ? lower[0, lower.length - suffix.length] : lower
           status = Php.lower(Php.get(item, 'status') || '')
           available = %w[available 1 true].include?(status)
           price = Php.get(item, 'price')
@@ -422,7 +437,7 @@ module DomainNameApi
       payload = { 'domainName' => domain_name, 'nameServers' => normalize_host_name_list(name_servers) }
       response = request('PUT', 'domains/dns/name-server', payload)
       ns = Php.get(response, 'nameServers')
-      { 'result' => RESULT_OK, 'data' => { 'NameServers' => ns.nil? ? name_servers : ns } }
+      { 'result' => RESULT_OK, 'data' => { 'NameServers' => ns.nil? ? payload['nameServers'] : ns } }
     rescue ApiError => e
       error_envelope(e, 'MODIFY_NS')
     end
@@ -441,16 +456,27 @@ module DomainNameApi
       error_envelope(e, 'DISABLE_LOCK')
     end
 
-    def modify_privacy_protection_status(domain_name, status, reason = DEFAULT_REASON)
-      _reason = Php.empty?(reason) ? DEFAULT_REASON : reason
-      request('POST', 'domains/privacy', { 'domainName' => domain_name, 'privacyStatus' => status == true })
-      { 'data' => { 'PrivacyProtectionStatus' => status }, 'result' => RESULT_OK }
+    # `reason` is kept for signature compatibility only: the gateway's
+    # DomainPrivacyInput has no reason field, so it is not sent.
+    def modify_privacy_protection_status(domain_name, status, _reason = DEFAULT_REASON)
+      enabled = if status == true || status == false
+                  status
+                elsif Php.array?(status)
+                  false
+                else
+                  Php.filter_bool(status)
+                end
+      request('POST', 'domains/privacy', { 'domainName' => domain_name, 'privacyStatus' => enabled })
+      { 'data' => { 'PrivacyProtectionStatus' => enabled }, 'result' => RESULT_OK }
     rescue ApiError => e
       error_envelope(e, 'MODIFY_PRIVACY')
     end
 
     def renew(domain_name, period)
       response = request('POST', 'domains/renew', { 'domainName' => domain_name, 'period' => period })
+      failed = operation_failure(response, 'RENEW_DOMAIN')
+      return failed if failed
+
       expiration = Php.get(response, 'expirationDate')
       if Php.truthy?(expiration)
         { 'result' => RESULT_OK, 'data' => { 'ExpirationDate' => format_api_date(expiration) } }
@@ -485,6 +511,9 @@ module DomainNameApi
         'tldAttributes' => attrs
       }
       response = request('POST', 'domains/register-with-contacts', payload)
+      failed = operation_failure(response, 'REGISTER_DOMAIN')
+      return failed if failed
+
       parse_domain_info(response)
     rescue ApiError => e
       error_envelope(e, 'REGISTER_DOMAIN')
@@ -494,6 +523,11 @@ module DomainNameApi
 
     CONTACT_TYPE_IN = { 'Admin' => 'Administrative', 'Billing' => 'Billing', 'Tech' => 'Technical',
                         'Registrant' => 'Registrant' }.freeze
+    # get_contacts: matched case-insensitively, long and short spellings.
+    CONTACT_TYPE_LOOKUP = {
+      'admin' => 'Administrative', 'administrative' => 'Administrative', 'billing' => 'Billing',
+      'tech' => 'Technical', 'technical' => 'Technical', 'registrant' => 'Registrant', 'owner' => 'Registrant'
+    }.freeze
     CONTACT_TYPE_OUT = { 'Administrative' => 'Admin', 'Technical' => 'Tech', 'Billing' => 'Billing',
                          'Registrant' => 'Registrant' }.freeze
 
@@ -503,8 +537,12 @@ module DomainNameApi
       list = Php.get(info, 'contacts')
       if Php.array?(list)
         Php.values(list).each do |item|
-          api_type = Php.get(item, 'contactType') || ''
-          key = (api_type.is_a?(String) && CONTACT_TYPE_IN[api_type]) || Php.ucfirst(Php.lower(api_type))
+          next unless Php.array?(item)
+
+          api_type = Php.trim(Php.to_s(first_set(Php.get(item, 'contactType'), '')))
+          key = CONTACT_TYPE_LOOKUP[Php.lower(api_type)] || Php.ucfirst(Php.lower(api_type))
+          next if key == ''
+
           merged = Php.to_hash(item).merge('type' => key)
           contacts[key] = parse_contact_info(merged)
         end
@@ -512,8 +550,9 @@ module DomainNameApi
 
       ordered = {}
       %w[Administrative Billing Registrant Technical].each do |key|
-        ordered[key] = contacts[key] unless contacts[key].nil?
+        ordered[key] = contacts.delete(key) unless contacts[key].nil?
       end
+      contacts.each { |key, contact| ordered[key] = contact }
       { 'data' => { 'contacts' => ordered }, 'result' => RESULT_OK }
     rescue ApiError => e
       error_envelope(e, 'GET_CONTACTS')
@@ -579,15 +618,14 @@ module DomainNameApi
 
     # --- transfers -------------------------------------------------------------
 
-    def transfer(domain_name, epp_code, period, contacts = {})
-      payload_contacts = []
-      unless Php.empty?(contacts)
-        payload_contacts = Php.pairs(Php.stringify_keys(contacts)).map do |type, details|
-          parse_contact(details, Php.ucfirst(Php.lower(type)))
-        end
-      end
-      payload = { 'domainName' => domain_name, 'authCode' => epp_code, 'period' => period, 'contacts' => payload_contacts }
+    # Contacts are never sent with a transfer: the registrar handles them, so
+    # the request always carries an empty contact list.
+    def transfer(domain_name, epp_code, period)
+      payload = { 'domainName' => domain_name, 'authCode' => epp_code, 'period' => period, 'contacts' => [] }
       response = request('POST', 'domains/transfer', payload)
+      failed = operation_failure(response, 'TRANSFER_DOMAIN')
+      return failed if failed
+
       parse_domain_info(response)
     rescue ApiError => e
       error_envelope(e, 'TRANSFER_DOMAIN')
@@ -677,9 +715,13 @@ module DomainNameApi
       name = relativize_record_name(name, domain_name)
       body = { 'zoneStruct' => build_zone_struct(name, type, content, ttl) }
       request('POST', "domains/zones?#{Php.http_build_query({ 'domainName' => domain_name })}", body)
-      apply_resource_records(domain_name) if Php.truthy?(apply)
+      if Php.truthy?(apply)
+        applied = apply_resource_records(domain_name)
+        return applied if applied['result'] != RESULT_OK
+      end
 
-      { 'result' => RESULT_OK, 'data' => { 'Name' => name, 'Type' => type, 'TTL' => Php.to_i(ttl), 'Content' => content } }
+      { 'result' => RESULT_OK,
+        'data' => { 'Name' => name, 'Type' => body['zoneStruct']['type'], 'TTL' => body['zoneStruct']['ttl'], 'Content' => content } }
     rescue ApiError => e
       error_envelope(e, 'ADD_ZONE')
     end
@@ -693,9 +735,13 @@ module DomainNameApi
       body = { 'zoneStruct' => build_zone_struct(name, type, content, ttl) }
       query = Php.http_build_query({ 'domainName' => domain_name, 'recordName' => record_name })
       request('PUT', "domains/zones?#{query}", body)
-      apply_resource_records(domain_name) if Php.truthy?(apply)
+      if Php.truthy?(apply)
+        applied = apply_resource_records(domain_name)
+        return applied if applied['result'] != RESULT_OK
+      end
 
-      { 'result' => RESULT_OK, 'data' => { 'Name' => name, 'Type' => type, 'TTL' => Php.to_i(ttl), 'Content' => content } }
+      { 'result' => RESULT_OK,
+        'data' => { 'Name' => name, 'Type' => body['zoneStruct']['type'], 'TTL' => body['zoneStruct']['ttl'], 'Content' => content } }
     rescue ApiError => e
       error_envelope(e, 'EDIT_ZONE')
     end
@@ -704,7 +750,10 @@ module DomainNameApi
       request('DELETE', 'domains/zones', {
                 'domainName' => domain_name, 'Name' => name, 'Record' => record, 'RecordType' => record_type
               })
-      apply_resource_records(domain_name) if Php.truthy?(apply)
+      if Php.truthy?(apply)
+        applied = apply_resource_records(domain_name)
+        return applied if applied['result'] != RESULT_OK
+      end
 
       { 'result' => RESULT_OK, 'data' => { 'Name' => name, 'Type' => record_type, 'Content' => record } }
     rescue ApiError => e
@@ -732,10 +781,13 @@ module DomainNameApi
 
       body = { 'zoneStruct' => build_zone_struct(name, type, contents, ttl) }
       request('POST', "domains/zones?#{Php.http_build_query({ 'domainName' => domain_name })}", body)
-      apply_resource_records(domain_name) if Php.truthy?(apply)
+      if Php.truthy?(apply)
+        applied = apply_resource_records(domain_name)
+        return applied if applied['result'] != RESULT_OK
+      end
 
       { 'result' => RESULT_OK,
-        'data' => { 'Name' => name, 'Type' => Php.upper(type), 'TTL' => Php.to_i(ttl), 'Contents' => contents } }
+        'data' => { 'Name' => name, 'Type' => body['zoneStruct']['type'], 'TTL' => body['zoneStruct']['ttl'], 'Contents' => contents } }
     rescue ApiError => e
       error_envelope(e, 'SET_ZONE')
     end
@@ -862,7 +914,7 @@ module DomainNameApi
     rescue ApiError => e
       raw = Php.get(@last_response, 'raw_response')
       raw = e.message if raw.nil?
-      if Php.to_s(raw).downcase.include?('not found') || e.message.downcase.include?('not found')
+      if forward_not_set?(e)
         return { 'result' => RESULT_OK, 'data' => { 'Enabled' => false, 'RedirectAddress' => '', 'ForwardType' => '' } }
       end
 
@@ -892,8 +944,11 @@ module DomainNameApi
 
     def delete_forwarding(domain_name)
       request('DELETE', 'domains/forwards', { 'DomainName' => domain_name })
-      { 'result' => RESULT_OK, 'data' => { 'DomainName' => domain_name } }
+      { 'result' => RESULT_OK, 'data' => { 'DomainName' => domain_name, 'Removed' => true } }
     rescue ApiError => e
+      # Nothing configured: deleting is a no-op.
+      return { 'result' => RESULT_OK, 'data' => { 'DomainName' => domain_name, 'Removed' => false } } if forward_not_set?(e)
+
       error_envelope(e, 'DELETE_FORWARD')
     end
 
@@ -910,7 +965,6 @@ module DomainNameApi
       'LastName' => 'Isimyok',
       'AddressLine1' => 'Addres yok',
       'City' => 'ISTANBUL',
-      'State' => 'ISTANBUL',
       'Country' => 'TR',
       'ZipCode' => '34000',
       'Phone' => '5555555555',
@@ -920,6 +974,8 @@ module DomainNameApi
     def validate_contact(contact)
       contact = Php.to_hash(contact)
       VALIDATE_DEFAULTS.each { |key, value| contact[key] = value if contact[key].nil? }
+      # No State default: a missing state falls back to the city below.
+      contact['State'] = '' if contact['State'].nil?
 
       contact['FirstName'] = sanitize_person_name(contact['FirstName'])
       contact['LastName'] = sanitize_person_name(contact['LastName'])
@@ -953,6 +1009,9 @@ module DomainNameApi
 
     def request(method, endpoint, data = {})
       pace_zone_request(endpoint)
+
+      @transport_failed = false
+      @last_gateway_code = ''
 
       @start_at = monotonic
       @start_wall = Time.now
@@ -1010,7 +1069,12 @@ module DomainNameApi
 
       message = first_set(Php.get(parsed, 'message'), Php.get(parsed, 'error', 'message'), response_body)
       code = first_set(Php.get(parsed, 'code'), Php.get(parsed, 'error', 'code'), "HTTP_#{status}")
-      details = first_set(Php.get(parsed, 'details'), Php.get(parsed, 'error', 'details'), response_body)
+      api_details = first_set(Php.get(parsed, 'details'), Php.get(parsed, 'error', 'details'))
+      details = first_set(api_details, response_body)
+      # The gateway's own code is kept as GatewayCode next to API_<status>.
+      if code.is_a?(String) && code != '' && !code.start_with?('HTTP_') && code != 'CREDENTIALS'
+        @last_gateway_code = code
+      end
 
       if Php.trim(message) == ''
         message = "HTTP #{status} - #{http_status_reason(status)}"
@@ -1018,7 +1082,8 @@ module DomainNameApi
       end
 
       if BOILERPLATE_RE.match?(Php.to_s(message)) || Php.to_s(message) == Php.to_s(code)
-        clean = Php.trim(Php.to_s(details).sub(/\ADna\s+/, ''))
+        # Only the gateway's details field may replace the message, never the raw body.
+        clean = Php.trim(Php.to_s(api_details).sub(/\ADna\s+/, ''))
         message = if clean != '' && clean != Php.to_s(message) && clean != Php.to_s(code) && !BOILERPLATE_RE.match?(clean)
                     clean
                   else
@@ -1041,6 +1106,7 @@ module DomainNameApi
     end
 
     def transport_failure(url, errno, detail)
+      @transport_failed = true
       message = "Curl error during request: #{detail}"
       message = "Could not reach the DomainNameAPI service: the connection timed out. (#{detail})" if errno == 28
       @last_response_headers = { 'url' => url, 'http_code' => 0, 'headers' => {},
@@ -1102,21 +1168,50 @@ module DomainNameApi
       'Unexpected Response'
     end
 
+    # API_<status> for HTTP errors, CURL_<errno> for transport failures.
     def format_error_code(code)
-      Php.numeric?(code) ? "API_#{Php.to_s(code)}" : Php.to_s(code)
+      return Php.to_s(code) unless Php.numeric?(code)
+
+      "#{@transport_failed ? 'CURL_' : 'API_'}#{Php.to_s(code)}"
     end
 
     def set_error(code, message = '', details = '')
       if code.is_a?(String) && DEFAULT_ERRORS.key?(code)
         default_message, default_details = DEFAULT_ERRORS[code]
-        {
+        result = {
           'Code' => code,
           'Message' => Php.trim(message) != '' ? message : default_message,
           'Details' => Php.trim(details) != '' ? details : default_details
         }
       else
-        { 'Code' => code, 'Message' => message, 'Details' => details }
+        result = { 'Code' => code, 'Message' => message, 'Details' => details }
       end
+      if result['Code'].is_a?(String) && result['Code'].match?(/\AAPI_\d+\z/) && !Php.empty?(@last_gateway_code) &&
+         @last_gateway_code != ''
+        result['GatewayCode'] = @last_gateway_code
+      end
+      result
+    end
+
+    # register/transfer/renew can answer HTTP 200 with {"success": false}:
+    # a refusal, returned as an error envelope (nil when it succeeded).
+    def operation_failure(response, code)
+      return nil unless response.is_a?(Hash) && response.key?('success') && response['success'] == false
+
+      message = Php.trim(Php.to_s(first_set(response['message'], '')))
+      message = 'The registry did not accept the request.' if message == ''
+      { 'result' => RESULT_ERROR, 'error' => set_error(code, message, message) }
+    end
+
+    FORWARD_NOT_SET = 'redirect information not found'
+
+    # The gateway answers "Redirect information not found" when no forwarding is set.
+    def forward_not_set?(error)
+      error.message.downcase.include?(FORWARD_NOT_SET) ||
+        Php.to_s(first_set(Php.get(@last_response, 'raw_response'), '')).downcase.include?(FORWARD_NOT_SET) ||
+        Php.json_encode(@last_response.nil? ? [] : @last_response).downcase.include?(FORWARD_NOT_SET)
+    rescue StandardError
+      false
     end
 
     # The catch block shared by every network method.
@@ -1360,6 +1455,18 @@ module DomainNameApi
       COUNTRY_NAMES.fetch(Php.lower(country)) { country }
     end
 
+    TWO_DIGIT_CALLING_CODES = %w[20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58
+                                 60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98].freeze
+
+    # E.164 calling code at the start of an international number (digits only).
+    def calling_code_prefix(digits)
+      return '' if digits == '' || digits[0] == '0'
+      return digits[0] if %w[1 7].include?(digits[0])
+      return digits[0, 2] if TWO_DIGIT_CALLING_CODES.include?(digits[0, 2])
+
+      digits.length >= 3 ? digits[0, 3] : ''
+    end
+
     # Split a free-form phone number into [subscriber number, country code].
     def normalize_phone(number, country_code)
       number_s = Php.to_s(number).b
@@ -1371,7 +1478,16 @@ module DomainNameApi
 
       if intl
         digits = digits[2..] if digits.start_with?('00')
-        digits = digits[cc.length..] if cc != '' && digits.start_with?(cc) && digits.length > cc.length
+        if cc != '' && digits.start_with?(cc) && digits.length > cc.length
+          digits = digits[cc.length..]
+        else
+          # The number carries its own calling code and it differs from the given one.
+          own = calling_code_prefix(digits)
+          if own != '' && digits.length > own.length
+            cc = own
+            digits = digits[own.length..]
+          end
+        end
       elsif cc != '' && digits.start_with?(cc) && digits.length > 10
         digits = digits[cc.length..]
       end

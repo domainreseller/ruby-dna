@@ -13,7 +13,8 @@ api_key     = 'your-api-key'                         # API Key
 dna = DomainNameApi::Client.new(reseller_id, api_key)
 # Test (OTE) environment: DomainNameApi::Client.new(reseller_id, api_key, true)
 
-# true to enable, false to disable; the reason is optional.
+# true/1/'1'/'on'/'true'/'yes' enable, anything else disables. The reason is
+# accepted for compatibility but not sent (the gateway has no such field).
 result = dna.modify_privacy_protection_status('example.com', true, 'Owner request')
 pp result
 

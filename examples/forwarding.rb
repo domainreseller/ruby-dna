@@ -24,4 +24,5 @@ pp dna.delete_forwarding(domain)
 # set_forwarding: { 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding: { 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
 # get_forwarding when nothing is set: { 'result' => 'OK', 'data' => { 'Enabled' => false, 'RedirectAddress' => '', 'ForwardType' => '' } }
-# delete_forwarding: { 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }
+# delete_forwarding: { 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
+#   (Removed => false when nothing was configured)

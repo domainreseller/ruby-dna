@@ -83,6 +83,8 @@ module DomainNameApi
       @rest.disable_theft_protection_lock(domain_name)
     end
 
+    # `status` accepts true/false and 1/"1"/"on"/"true"/"yes"; `reason` is
+    # accepted for compatibility and not sent (the gateway has no such field).
     def modify_privacy_protection_status(domain_name, status, reason = 'Owner request')
       @rest.modify_privacy_protection_status(domain_name, status, reason)
     end
@@ -113,11 +115,9 @@ module DomainNameApi
 
     # Transfers
 
-    # php-dna's facade forwards only the first three arguments, so `contacts`
-    # is accepted for signature compatibility but not sent (the transfer
-    # request always carries an empty contact list, exactly like php-dna).
-    # Call client.rest.transfer(...) to send contacts with the transfer.
-    def transfer(domain_name, epp_code, period, _contacts = {})
+    # Contacts are never sent with a transfer: the registrar handles them,
+    # so the request always carries an empty contact list.
+    def transfer(domain_name, epp_code, period)
       @rest.transfer(domain_name, epp_code, period)
     end
 

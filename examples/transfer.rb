@@ -13,7 +13,8 @@ api_key     = 'your-api-key'                         # API Key
 dna = DomainNameApi::Client.new(reseller_id, api_key)
 # Test (OTE) environment: DomainNameApi::Client.new(reseller_id, api_key, true)
 
-# Domain, EPP/auth code, period in years.
+# Domain, EPP/auth code, period in years. Contacts are never sent with a
+# transfer (the registrar handles them).
 result = dna.transfer('example.com', 'ABC123XYZ456', 1)
 pp result
 
