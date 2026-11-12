@@ -1,0 +1,38 @@
+{
+    "id": "renew.fail-flag",
+    "call": "renew",
+    "args": [
+        "example.com",
+        3
+    ],
+    "responses": [
+        {
+            "status": 200,
+            "body": "{\"success\":false,\"message\":\"Domain is not available for registration\",\"domainId\":null,\"status\":null,\"expirationDate\":null}"
+        }
+    ],
+    "requests": [
+        {
+            "method": "POST",
+            "path": "domains/renew",
+            "query": [],
+            "body": {
+                "domainName": "example.com",
+                "period": 3
+            },
+            "headers": {
+                "X-API-KEY": "conformance-api-key",
+                "__reseller": "00000000-0000-4000-8000-000000000001"
+            }
+        }
+    ],
+    "output": {
+        "result": "ERROR",
+        "error": {
+            "Code": "RENEW_DOMAIN",
+            "Message": "Domain is not available for registration",
+            "Details": "Domain is not available for registration"
+        }
+    },
+    "ignore": []
+}
