@@ -6,6 +6,11 @@ require 'minitest/autorun'
 require 'json'
 require 'uri'
 
+# The built-in DSN is DomainNameAPI's real Sentry project: no test may reach it.
+# Tests that check events install their own sender; this blocks everything else.
+DomainNameApi::Telemetry.define_singleton_method(:post) { |*| nil }
+DomainNameApi::Telemetry.define_singleton_method(:server_ip) { nil }
+
 module DnaTestSupport
   RESELLER = '00000000-0000-4000-8000-000000000001'
   API_KEY = 'conformance-api-key'
