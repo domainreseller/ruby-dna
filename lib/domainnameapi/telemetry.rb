@@ -12,8 +12,8 @@ module DomainNameApi
   # last request/response state. Telemetry never raises into the caller and
   # never blocks it: events are posted from a background thread.
   module Telemetry
-    # The Sentry DSN for ruby-dna; filled in when the Sentry project exists.
-    DEFAULT_SENTRY_DSN = ''
+    # DomainNameAPI's Sentry project for ruby-dna; set_error_reporting_enabled(false) turns reporting off.
+    DEFAULT_SENTRY_DSN = 'https://f73e957c11c042414614660c5fe09889@sentry.atakdomain.com/18'
 
     APPLICATION = 'DomainNameAPI-Ruby'
 

@@ -31,7 +31,7 @@ Registrieren, verlängern und transferieren Sie Domains und verwalten Sie Kontak
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### B) Gem-Datei aus dem Release
 
-Laden Sie `domainnameapi-1.0.0.gem` aus dem [neuesten Release](https://github.com/domainreseller/ruby-dna/releases/latest) herunter und führen Sie dann aus:
+Laden Sie `domainnameapi-1.0.1.gem` aus dem [neuesten Release](https://github.com/domainreseller/ruby-dna/releases/latest) herunter und führen Sie dann aus:
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### C) Manuelle Verwendung
@@ -138,8 +138,6 @@ dna.set_service_url('https://ote.domainresellerapi.com/api/v1')
 ## Fehlerberichte (Telemetrie)
 
 Wenn ein API-Aufruf fehlschlägt, kann die Bibliothek einen Fehlerbericht an den eigenen Fehler-Tracker von DomainNameAPI (Sentry) senden. Ein kleiner, zufällig gewählter Anteil erfolgreicher Aufrufe (4 %, dazu jeder Aufruf, der länger als 1 Sekunde dauert) kann als Performance-Datensatz gesendet werden. Das hilft DomainNameAPI, Probleme zu finden und zu beheben. Fehlerberichte sind **standardmäßig aktiviert**.
-
-> ℹ️ In Version 1.0.0 existiert das Sentry-Projekt für ruby-dna noch nicht, daher ist der eingebaute DSN leer und es wird **nichts gesendet**. Berichte werden gesendet, sobald ein Release den DSN mitliefert. Mit `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')` lässt sich ein DSN explizit setzen.
 
 **Was gesendet wird:**
 

@@ -19,13 +19,8 @@ class TelemetryTest < Minitest::Test
     @sender.events.select { |e| e[:payload]['level'] == 'error' }
   end
 
-  def test_default_dsn_is_empty_and_telemetry_is_a_no_op
-    assert_equal '', DomainNameApi::Telemetry::DEFAULT_SENTRY_DSN
-    client = DomainNameApi::Client.new(RESELLER, API_KEY, false, transport: @transport)
-    client.set_telemetry_sender(@sender)
-    @transport.push(500, '{"error":{"message":"Server exploded"}}')
-    client.get_details('example.com')
-    assert_empty @sender.events
+  def test_default_dsn_is_the_ruby_project
+    assert_equal 'https://f73e957c11c042414614660c5fe09889@sentry.atakdomain.com/18', DomainNameApi::Telemetry::DEFAULT_SENTRY_DSN
   end
 
   def test_error_event_payload
@@ -35,11 +30,11 @@ class TelemetryTest < Minitest::Test
     event = error_events.first
     payload = event[:payload]
     assert_equal 'https://sentry.example.test/api/42/store/', event[:url]
-    assert_equal 'X-Sentry-Auth: Sentry sentry_version=7, sentry_client=ruby-dna/1.0.0, sentry_key=publickey', event[:auth]
+    assert_equal 'X-Sentry-Auth: Sentry sentry_version=7, sentry_client=ruby-dna/1.0.1, sentry_key=publickey', event[:auth]
     assert_equal true, event[:resolve_ip]
     assert_equal 'DomainNameAPI-Ruby', payload['tags']['application']
-    assert_equal '1.0.0', payload['tags']['library_version']
-    assert_equal '1.0.0', payload['release']
+    assert_equal '1.0.1', payload['tags']['library_version']
+    assert_equal '1.0.1', payload['release']
     assert_equal 'production', payload['environment']
     assert_equal RESELLER, payload['tags']['reseller']
     assert_equal 'request:GET domains/info', payload['tags']['operation']

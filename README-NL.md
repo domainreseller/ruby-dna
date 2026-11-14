@@ -31,7 +31,7 @@ Registreer, verleng en transfereer domeinen en beheer contacten, nameservers, ch
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### B) Gem-bestand uit de release
 
-Download `domainnameapi-1.0.0.gem` uit de [nieuwste release](https://github.com/domainreseller/ruby-dna/releases/latest) en voer daarna uit:
+Download `domainnameapi-1.0.1.gem` uit de [nieuwste release](https://github.com/domainreseller/ruby-dna/releases/latest) en voer daarna uit:
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### C) Handmatig gebruik
@@ -138,8 +138,6 @@ Geef `true` mee als derde constructorargument om de OTE-testgateway te gebruiken
 ## Foutrapportage (telemetrie)
 
 Wanneer een API-aanroep mislukt, kan de bibliotheek een foutrapport sturen naar de eigen fouttracker van DomainNameAPI (Sentry). Een klein, willekeurig deel van de geslaagde aanroepen (4%, plus elke aanroep die langer dan 1 seconde duurt) kan als prestatiegegeven worden verstuurd. Dit helpt DomainNameAPI problemen te vinden en op te lossen. Foutrapportage staat **standaard aan**.
-
-> ℹ️ In versie 1.0.0 bestaat het Sentry-project voor ruby-dna nog niet; de ingebouwde DSN is daarom leeg en er wordt **niets verstuurd**. Rapporten worden pas verstuurd zodra een release de DSN meelevert. Met `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')` stelt u er expliciet een in.
 
 **Wat wordt verstuurd:**
 

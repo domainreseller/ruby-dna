@@ -31,7 +31,7 @@
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### B) 使用 Release 中的 gem 文件
 
-从[最新 Release](https://github.com/domainreseller/ruby-dna/releases/latest) 下载 `domainnameapi-1.0.0.gem`，然后执行：
+从[最新 Release](https://github.com/domainreseller/ruby-dna/releases/latest) 下载 `domainnameapi-1.0.1.gem`，然后执行：
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### C) 手动使用
@@ -138,8 +138,6 @@ dna.set_service_url('https://ote.domainresellerapi.com/api/v1')
 ## 错误报告（遥测）
 
 当 API 调用失败时，本库可以向 DomainNameAPI 自己的错误跟踪系统（Sentry）发送一份错误报告。成功调用中会随机抽取一小部分（4%，另外所有耗时超过 1 秒的调用）作为性能记录发送。这有助于 DomainNameAPI 发现并修复问题。错误报告**默认开启**。
-
-> ℹ️ 在 1.0.0 版本中，ruby-dna 的 Sentry 项目尚未创建，因此内置的 DSN 为空，**不会发送任何数据**。待某个 Release 内置 DSN 之后才会开始发送报告。可以通过 `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')` 显式设置 DSN。
 
 **发送的内容：**
 

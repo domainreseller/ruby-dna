@@ -39,7 +39,7 @@ class HttpTest < Minitest::Test
     req = @transport.requests.last
     assert_equal 'application/json', req[:headers]['Content-Type']
     assert_equal 'application/json', req[:headers]['Accept']
-    assert_equal 'DomainNameAPI-Ruby/1.0.0', req[:headers]['User-Agent']
+    assert_equal 'DomainNameAPI-Ruby/1.0.1', req[:headers]['User-Agent']
     assert_equal 30, req[:timeout]
     assert_equal 10, req[:connect_timeout]
     assert_equal true, req[:verify_ssl]

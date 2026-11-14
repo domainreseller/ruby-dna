@@ -31,7 +31,7 @@ Register, renew and transfer domains, manage contacts, nameservers, child namese
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### B) Gem file from the release
 
-Download `domainnameapi-1.0.0.gem` from the [latest release](https://github.com/domainreseller/ruby-dna/releases/latest), then:
+Download `domainnameapi-1.0.1.gem` from the [latest release](https://github.com/domainreseller/ruby-dna/releases/latest), then:
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### C) Manual usage
@@ -138,8 +138,6 @@ Pass `true` as the third constructor argument to use the OTE test gateway (`http
 ## Error reporting (telemetry)
 
 When an API call fails, the library can send an error report to DomainNameAPI's own error tracker (Sentry). A small random share of successful calls (4%, plus every call slower than 1 second) can be sent as a performance record. This helps DomainNameAPI find and fix problems. Error reporting is **on by default**.
-
-> ℹ️ In version 1.0.0 the Sentry project for ruby-dna does not exist yet, so the built-in DSN is empty and **nothing is sent**. Reports start once a release ships the DSN. `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')` sets one explicitly.
 
 **What is sent:**
 
