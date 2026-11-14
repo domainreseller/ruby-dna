@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-14
+
+### Changed
+
+- Error reporting now has its own Sentry project: `DEFAULT_SENTRY_DSN` points to DomainNameAPI's
+  ruby-dna project, so telemetry is active by default as documented. Turn it off with
+  `set_error_reporting_enabled(false)`; `sentry_dsn:` still overrides the target.
+
 ## [1.0.0] - 2026-11-09
 
 First release: a faithful Ruby port of [php-dna](https://github.com/domainreseller/php-dna)

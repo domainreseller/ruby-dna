@@ -31,7 +31,7 @@
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### ب) ملف gem من الإصدار
 
-نزّل الملف `domainnameapi-1.0.0.gem` من [أحدث إصدار](https://github.com/domainreseller/ruby-dna/releases/latest)، ثم:
+نزّل الملف `domainnameapi-1.0.1.gem` من [أحدث إصدار](https://github.com/domainreseller/ruby-dna/releases/latest)، ثم:
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### ج) الاستخدام اليدوي
@@ -138,8 +138,6 @@ dna.set_service_url('https://ote.domainresellerapi.com/api/v1')
 ## تقارير الأخطاء (القياس عن بُعد)
 
 عندما يفشل طلب API، يمكن للمكتبة إرسال تقرير خطأ إلى نظام تتبع الأخطاء الخاص بـ DomainNameAPI ‏(Sentry). كما يمكن إرسال جزء صغير عشوائي من الطلبات الناجحة (4%، بالإضافة إلى كل طلب تتجاوز مدته ثانية واحدة) كسجل أداء. يساعد ذلك DomainNameAPI على اكتشاف المشكلات وإصلاحها. تقارير الأخطاء **مفعّلة افتراضيًا**.
-
-> ℹ️ في الإصدار 1.0.0 لا يوجد بعدُ مشروع Sentry خاص بـ ruby-dna، لذا فإن DSN المدمج فارغ و**لا يُرسَل أي شيء**. تبدأ التقارير بالإرسال عندما يتضمن أحد الإصدارات قيمة DSN. يمكن تعيين قيمة صراحةً باستخدام `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')`.
 
 **ما يتم إرساله:**
 

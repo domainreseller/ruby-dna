@@ -31,7 +31,7 @@ DomainNameAPI REST API üzerinden alan adlarını kaydedin, yenileyin ve transfe
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### B) Release içindeki gem dosyası
 
-[En son release](https://github.com/domainreseller/ruby-dna/releases/latest) sayfasından `domainnameapi-1.0.0.gem` dosyasını indirin, ardından:
+[En son release](https://github.com/domainreseller/ruby-dna/releases/latest) sayfasından `domainnameapi-1.0.1.gem` dosyasını indirin, ardından:
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### C) Manuel kullanım
@@ -138,8 +138,6 @@ OTE test gateway'ini (`https://ote.domainresellerapi.com/api/v1`) kullanmak içi
 ## Hata raporlama (telemetri)
 
 Bir API çağrısı başarısız olduğunda kütüphane, DomainNameAPI'nin kendi hata takip sistemine (Sentry) bir hata raporu gönderebilir. Başarılı çağrıların rastgele seçilen küçük bir kısmı (%4, ayrıca 1 saniyeden uzun süren her çağrı) performans kaydı olarak gönderilebilir. Bu, DomainNameAPI'nin sorunları bulup düzeltmesine yardımcı olur. Hata raporlama **varsayılan olarak açıktır**.
-
-> ℹ️ 1.0.0 sürümünde ruby-dna için Sentry projesi henüz mevcut değildir; bu nedenle yerleşik DSN boştur ve **hiçbir şey gönderilmez**. Raporlar, DSN'i içeren bir release yayımlandığında başlar. `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')` ile açıkça bir DSN tanımlanabilir.
 
 **Gönderilenler:**
 

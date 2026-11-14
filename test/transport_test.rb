@@ -49,7 +49,7 @@ class TransportTest < Minitest::Test
     with_server(handler) do |port|
       response = DomainNameApi::NetHttpTransport.new.call(
         method: 'POST', url: "http://127.0.0.1:#{port}/api/v1/domains/lock?x=1",
-        headers: { 'X-API-KEY' => 'k', 'User-Agent' => 'DomainNameAPI-Ruby/1.0.0', 'Content-Type' => 'application/json' },
+        headers: { 'X-API-KEY' => 'k', 'User-Agent' => 'DomainNameAPI-Ruby/1.0.1', 'Content-Type' => 'application/json' },
         body: '{"domainName":"example.com"}', timeout: 5, connect_timeout: 2, verify_ssl: true
       )
       assert_equal 201, response.status
@@ -57,7 +57,7 @@ class TransportTest < Minitest::Test
       head, body = seen.pop
       assert_match %r{\APOST /api/v1/domains/lock\?x=1 HTTP/1.1}, head
       assert_match(/^x-api-key: k/i, head)
-      assert_match(%r{^user-agent: DomainNameAPI-Ruby/1.0.0}i, head)
+      assert_match(%r{^user-agent: DomainNameAPI-Ruby/1.0.1}i, head)
       assert_equal '{"domainName":"example.com"}', body
     end
   end

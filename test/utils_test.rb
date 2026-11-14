@@ -107,8 +107,8 @@ class UtilsTest < Minitest::Test
   end
 
   def test_version_constant
-    assert_equal '1.0.0', DomainNameApi::VERSION
-    assert_equal 'DomainNameAPI-Ruby/1.0.0', DomainNameApi::Rest::USER_AGENT
+    assert_equal '1.0.1', DomainNameApi::VERSION
+    assert_equal 'DomainNameAPI-Ruby/1.0.1', DomainNameApi::Rest::USER_AGENT
   end
 
   def test_client_implements_the_whole_public_api

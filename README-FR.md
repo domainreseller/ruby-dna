@@ -31,7 +31,7 @@ Enregistrez, renouvelez et transférez des domaines, gérez les contacts, les se
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
 ```
 
 ```bash
@@ -40,10 +40,10 @@ bundle install
 
 ### B) Fichier gem de la release
 
-Téléchargez `domainnameapi-1.0.0.gem` depuis la [dernière release](https://github.com/domainreseller/ruby-dna/releases/latest), puis :
+Téléchargez `domainnameapi-1.0.1.gem` depuis la [dernière release](https://github.com/domainreseller/ruby-dna/releases/latest), puis :
 
 ```bash
-gem install ./domainnameapi-1.0.0.gem
+gem install ./domainnameapi-1.0.1.gem
 ```
 
 ### C) Utilisation manuelle
@@ -138,8 +138,6 @@ Passez `true` comme troisième argument du constructeur pour utiliser la passere
 ## Rapports d'erreurs (télémétrie)
 
 Lorsqu'un appel API échoue, la bibliothèque peut envoyer un rapport d'erreur au système de suivi des erreurs de DomainNameAPI (Sentry). Une petite part aléatoire des appels réussis (4 %, plus chaque appel de plus d'une seconde) peut être envoyée comme enregistrement de performance. Cela aide DomainNameAPI à trouver et corriger les problèmes. Les rapports d'erreurs sont **activés par défaut**.
-
-> ℹ️ Dans la version 1.0.0, le projet Sentry de ruby-dna n'existe pas encore : le DSN intégré est donc vide et **rien n'est envoyé**. Les rapports commenceront lorsqu'une release embarquera le DSN. `DomainNameApi::Client.new(id, key, false, sentry_dsn: '...')` permet d'en définir un explicitement.
 
 **Ce qui est envoyé :**
 
