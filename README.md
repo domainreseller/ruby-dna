@@ -1,7 +1,7 @@
 <div align="center">
-  <a href="README-TR.md"   >   TR <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/TR.png" alt="TR" height="20" /></a>
+  <a href="README-TR.md">TR <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/TR.png" alt="TR" height="20" /></a>
   <a href="README.md"> | EN <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/US.png" alt="EN" height="20" /></a>
-   <a href="README-DE.md"> | DE <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/DE.png" alt="DE" height="20" /></a>
+  <a href="README-DE.md"> | DE <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/DE.png" alt="DE" height="20" /></a>
   <a href="README-SA.md"> | SA <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/SA.png" alt="AR" height="20" /></a>
   <a href="README-NL.md"> | NL <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/NL.png" alt="NL" height="20" /></a>
   <a href="README-AZ.md"> | AZ <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/AZ.png" alt="AZ" height="20" /></a>
@@ -10,984 +10,598 @@
   <a href="README-IT.md"> | IT <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/IT.png" alt="IT" height="20" /></a>
 </div>
 
-# ruby-dna — DomainNameAPI client for Ruby
+# ruby-dna: the Ruby SDK for the Domain Name API
 
-Register, renew and transfer domains, manage contacts, nameservers, child nameservers, DNS zones and URL forwarding through the DomainNameAPI REST API. `ruby-dna` is a faithful port of [php-dna](https://github.com/domainreseller/php-dna): the same methods, the same requests on the wire and the same return values, verified against php-dna's conformance fixtures.
+[![CI](https://github.com/domainreseller/ruby-dna/actions/workflows/ci.yml/badge.svg)](https://github.com/domainreseller/ruby-dna/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## 📦 Download — always use Releases!
+Ruby client for the [Domain Name API](https://www.domainnameapi.com) reseller REST API: domain search,
+registration, renewal and transfer, DNS, DNSSEC, contacts, SSL certificates, hosting, orders, the product
+catalogue and your balance.
 
-⬇️ **Get the latest tested version here: https://github.com/domainreseller/ruby-dna/releases/latest**
+- **All 64 API operations**, grouped the same way as the [`dna` CLI](https://github.com/domainreseller/cli):
+  `dna domain info` is `client.domains.info`, `dna dns add` is `client.dns.add`.
+- **Real objects, not hashes**: `domain.status.pending_delete?`, `domain.expiration_date` is a `Time`,
+  `availability.available?`, `tld.register_price(1)`.
+- **Every operation is a request class** that inherits from `DomainNameApi::BaseRequest` and validates itself
+  before anything is sent. Write your own the same way.
+- **Safe by default**: billable requests are never retried blindly, `read_only: true` blocks changes, the client
+  paces itself under the rate limits and is safe to share between threads.
+- **No dependencies.** Ruby 3.1 or newer, standard library only.
 
-> ⚠️ Do **not** use the green **Code → Download ZIP** button — that downloads the raw development branch. Release packages are versioned, tested and production-ready.
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key, environment: :ote)
 
-## Installation and Integration Guide
+a = client.domains.search('example.com')
+puts "#{a.domain_name} is available for #{a.price} #{a.currency}" if a.available?
+```
 
-### Minimum Requirements
+## Contents
 
-- Ruby 2.7 or higher (Recommended 3.3+)
-- No runtime dependencies: only the standard library (`net/http`, `json`, `openssl`).
+- [Install](#install)
+- [Credentials and environments](#credentials-and-environments)
+- [Services](#services)
+- [Usage](#usage)
+- [Results, models and enums](#results-models-and-enums)
+- [Requests and BaseRequest](#requests-and-baserequest)
+- [Errors](#errors)
+- [Safety and reliability](#safety-and-reliability)
+- [Client options](#client-options)
+- [Testing your code](#testing-your-code)
+- [Migrating from v1](#migrating-from-v1)
+- [Development](#development)
 
-### A) Bundler
+## Install
+
+> ⬇️ Use a tagged version from [Releases](https://github.com/domainreseller/ruby-dna/releases/latest). The
+> green **Code → Download ZIP** button gives you the development branch.
+
+With Bundler:
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.0.0'
 ```
+
+Or install the `.gem` file attached to the release:
 
 ```bash
-bundle install
+gem install ./domainnameapi-2.0.0.gem
 ```
-
-### B) Gem file from the release
-
-Download `domainnameapi-1.0.1.gem` from the [latest release](https://github.com/domainreseller/ruby-dna/releases/latest), then:
-
-```bash
-gem install ./domainnameapi-1.0.1.gem
-```
-
-### C) Manual usage
-
-Download the release archive, copy the `lib` folder into your project and look at the examples in the [examples](examples) folder:
 
 ```ruby
-$LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'domainnameapi'
 ```
 
-## 🔑 API Credentials — Reseller ID & API Key
+Runnable programs are in [examples](examples): `quickstart`, `register`, `expiring`, `dns`, `ssl` and
+`custom_request`.
 
-The library talks to the DomainNameAPI REST API and needs exactly two credentials, passed to the constructor:
-
-| Parameter | Value |
-|---|---|
-| First | Reseller ID — UUID like `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
-| Second | API Key |
-
-> 💡 Find your **Reseller ID** and **API Key** in your DomainNameAPI panel under **API Settings**.
-> ⚠️ These are **API credentials** — your panel login details will **not** work here.
-
-## Quick start
-
-```ruby
-require 'domainnameapi'
-
-reseller_id = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
-api_key     = 'your-api-key'
-
-# Live environment
-dna = DomainNameApi::Client.new(reseller_id, api_key)
-
-# Test (OTE) environment
-dna = DomainNameApi::Client.new(reseller_id, api_key, true)
-
-result = dna.get_details('example.com')
-if result['result'] == 'OK'
-  puts result['data']['Dates']['Expiration']
-else
-  puts "#{result['error']['Code']}: #{result['error']['Message']}"
-end
+```bash
+DNA_RESELLER_ID=... DNA_API_KEY=... DNA_ENV=ote ruby examples/quickstart.rb example.com
 ```
 
-Method names are the snake_case form of php-dna's (`getDetails` → `get_details`, `registerWithContactInfo` → `register_with_contact_info`), with the same parameter order and defaults. Results are plain Ruby Hashes and Arrays with **String keys**, exactly the structure php-dna returns (including string flags such as `'LockStatus' => 'true'` and formatted prices such as `'11.9900'`). Credentials are trimmed, and the test-mode flag also accepts strings: `"true"`, `"1"`, `"on"` and `"yes"` mean test mode, anything else means live.
+## Credentials and environments
 
-## Error handling
+You need two API credentials from the reseller panel (**API settings**). Panel login details do not work.
 
-Methods never raise for API or network problems. A failed call returns an error envelope:
+| Credential  | Looks like                             |
+|-------------|----------------------------------------|
+| Reseller ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| API key     | a long secret string                   |
 
-```ruby
-{
-  'result' => 'ERROR',
-  'error'  => {
-    'Code'    => 'API_404',
-    'Message' => 'The domain name you requested could not be found',
-    'Details' => '...'
-  }
-}
-```
-
-- `Code` is `API_<HTTP status>` for gateway errors (`API_400`, `API_401`, `API_429`, `API_500`, ...). A `301`/`302` answer means bad credentials (`Invalid API credentials`).
-- When the gateway sends its own error code, the envelope also carries it as `GatewayCode` (e.g. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`), so you can tell one `API_404` from another.
-- An empty error body becomes a readable message such as `HTTP 429 - Too Many Requests`. The raw response body is never used as the message when the gateway's message is boilerplate; a stable text naming the gateway code is used instead.
-- Field validation errors are flattened into `Details`, e.g. `Admin PostalCode - 'PostalCode' is required`.
-- Network failures are errors, never an empty success. A timeout reads `Could not reach the DomainNameAPI service: the connection timed out. (...)`; other transport failures read `Curl error during request: ...`. Their codes are `CURL_<n>` with curl's numbers (`CURL_28` timeout, `CURL_6` DNS, `CURL_7` connection refused, `CURL_35`/`CURL_60` TLS, `CURL_56` reset); `API_<n>` is reserved for HTTP statuses.
-- A registration, transfer or renewal that the gateway answers with HTTP 200 but `"success": false` is a refusal, not a success: it returns the error envelope with code `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` or `RENEW_DOMAIN` and the gateway's message.
-- `get_current_balance` keeps its own envelope: `'OperationResult' => 'FAILED'` with `ErrorCode` and `OperationMessage`.
-- `check_availability` returns a plain list on success and the error envelope on failure.
-
-Only programmer errors raise (for example `set_resource_record_set` with `contents` that is not a list raises `TypeError`).
-
-Timeouts are 30 seconds per call and 10 seconds to connect. Calls to the DNS zone endpoints are kept at least one second apart, because the gateway answers `HTTP 429` to bursts.
-
-### Diagnostics
+There are two environments. **Start with OTE**, the test environment: it has its own data and its own API key,
+and nothing you do there costs money or touches live domains.
 
 ```ruby
-dna.get_request_data         # { 'url' => ..., 'method' => 'GET', 'payload' => {...} } of the last call
-dna.get_response_data        # last decoded response body (or { 'raw_response' => body })
-dna.get_response_headers     # { 'url', 'http_code', 'headers', 'total_time' }
-dna.get_parsed_response_data # last parsed body, or the last error { 'Code', 'Message', 'Details' }
-dna.get_last_function        # e.g. 'request:GET domains/info'
-dna.get_service_url          # https://api.domainresellerapi.com/api/v1
-dna.set_service_url('https://ote.domainresellerapi.com/api/v1')
+# Test environment (OTE)
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: ote_api_key, environment: :ote)
+
+# Production (the default): real registrations, real charges
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
 ```
 
-## Test mode
+`environment:` also accepts the strings panels store: `'production'`, `'ote'`, `'test'`, and test-mode flags
+(`'true'`, `'1'`, `true`). `Client.from_env` reads the same variables as the `dna` CLI:
 
-Pass `true` as the third constructor argument to use the OTE test gateway (`https://ote.domainresellerapi.com/api/v1`). Live calls go to `https://api.domainresellerapi.com/api/v1`. Test mode uses separate test credentials.
-
-## Error reporting (telemetry)
-
-When an API call fails, the library can send an error report to DomainNameAPI's own error tracker (Sentry). A small random share of successful calls (4%, plus every call slower than 1 second) can be sent as a performance record. This helps DomainNameAPI find and fix problems. Error reporting is **on by default**.
-
-**What is sent:**
-
-- error code and message
-- called endpoint path and HTTP method
-- call duration
-- library name (`DomainNameAPI-Ruby`), library version and Ruby version
-- reseller ID and domain name
-- the server's public IP address (looked up via `api.ipify.org`, in the background)
-- the operating-system user name the process runs as
-- the API request and response, including the domain's contact details; only credentials are masked — EPP/auth codes, API keys, passwords and tokens are replaced with `***`
-
-**What is never sent:** EPP/auth codes, API keys, passwords or tokens in readable form; method arguments in stack traces.
-
-Expected, high-volume errors (domain not found, insufficient balance, invalid credentials, ...) are not reported. Reports are posted from a background thread with short timeouts: they never slow down or break your call.
-
-**Why and how long:** the data is used only for usage measurement and early diagnosis of problems, and is kept for 30 days on DomainNameAPI's own Sentry server, after which it is deleted automatically.
-
-**How to turn it off:**
+| Variable          | Meaning                                                       |
+|-------------------|---------------------------------------------------------------|
+| `DNA_RESELLER_ID` | reseller ID                                                   |
+| `DNA_API_KEY`     | API key of the selected environment                           |
+| `DNA_ENV`         | `production` (default) or `ote`                               |
+| `DNA_TEST_MODE`   | `true` selects OTE (as in the other DomainNameAPI SDKs)       |
+| `DNA_BASE_URL`    | a custom base URL, e.g. a proxy                               |
 
 ```ruby
-dna = DomainNameApi::Client.new(reseller_id, api_key)
-dna.set_error_reporting_enabled(false)
+client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
 ```
 
-**Minimal mode** sends only the error code and message, endpoint, timing, versions and the reseller ID — no request/response data, domain, server IP or user name:
+A wrong key or environment fails on the first request with an `APIError` whose `auth?` is true and whose `hint`
+says what to check; `client.account.get` is the cheapest way to try.
 
-```ruby
-dna.set_telemetry_minimal(true)
-```
+## Services
 
-> 🔒 **Security:** TLS certificate verification is on. On a host with an outdated CA bundle it can be switched off with `dna.set_ssl_verification(false)` — this is not recommended; updating the CA bundle is the better fix.
+| Service            | CLI group     | Methods                                                                                                                                                           |
+|--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
+| `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
+| `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
+| `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
+| `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
+| `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
+
+Required inputs are positional (`info('example.com')`), everything else is a keyword
+(`renew('example.com', years: 1)`). Operations with many optional inputs take keywords or a request object:
+`register(domain_name: ..., years: 1, ...)` and `register(DomainNameApi::DomainRegisterRequest.new(...))` are the
+same. `ssl.purchase` is the CLI's `dna ssl initialize` (`initialize` is reserved in Ruby).
 
 ## Usage
 
-All examples assume `dna = DomainNameApi::Client.new(reseller_id, api_key)`. Runnable scripts for every method are in [examples](examples).
+All snippets assume a `client`.
 
-### Account
-
-#### Reseller details
+### Search
 
 ```ruby
-dna.get_reseller_details
+a = client.domains.search('example.com')
+a.available?            # a.price, a.currency, a.premium?, a.document_required?, a.reason
+
+client.domains.bulk_search('example.com', 'example.net', 'example.org').each do |r|
+  puts "#{r.domain_name} #{r.status} #{r.price}"
+end
 ```
 
-<details>
-<summary>Sample output</summary>
+`bulk_search` splits lists longer than 30 domains into several requests. Prices use the account's currency, the
+client's `currency: 'TRY'` option, or `search('example.com', currency: 'USD')`.
+
+### Register
+
+With contact handles (create one with `contacts.create`):
 
 ```ruby
-{
-  'result'   => 'OK',
-  'id'       => 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-  'active'   => true,
-  'name'     => 'example-reseller',
-  'balance'  => '601.64',
-  'currency' => 'USD',
-  'symbol'   => '$',
-  'balances' => [
-    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
-  ]
-}
+handle = client.contacts.create(
+  DomainNameApi::Contact.new(
+    first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com',
+    address: '1 Example Street', city: 'Istanbul', state: 'Istanbul', postal_code: '34000',
+    country: 'TR', phone_country_code: '90', phone: '5551234567'
+  )
+)
+
+result = client.domains.register(
+  domain_name: 'example.com', years: 1,
+  name_servers: %w[ns1.example.net ns2.example.net],
+  handles: handle # one handle for all four roles, or { registrant: 'DNA-1', admin: 'DNA-2', tech: ..., billing: ... }
+)
+result.status           # result.domain_id, result.expiration_date
 ```
 
-</details>
-
-#### Current balance
-
-`get_current_balance(currency = 'USD')` — the account reports `'USD'` and `'TRY'` balances. For any other currency (`'EUR'`, `'GBP'`, ...) the call fails with `'ErrorCode' => 'BALANCE'` instead of answering `0.00`.
+With inline contacts:
 
 ```ruby
-dna.get_current_balance('USD')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'ErrorCode'        => 0,
-  'OperationMessage' => 'Command completed succesfully.',
-  'OperationResult'  => 'SUCCESS',
-  'Balance'          => '601.64',
-  'CurrencyId'       => 2,
-  'CurrencyInfo'     => nil,
-  'CurrencyName'     => 'USD',
-  'CurrencySymbol'   => '$'
-}
-# get_current_balance('EUR')
-{
-  'ErrorCode'        => 'BALANCE',
-  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
-  'OperationResult'  => 'FAILED',
-  'Balance'          => '0.00',
-  'CurrencyId'       => 3,
-  'CurrencyInfo'     => nil,
-  'CurrencyName'     => 'EUR',
-  'CurrencySymbol'   => '€'
-}
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Search and lists
-
-#### Domain availability check
-
-`check_availability(domains, extensions, period, command = 'create')` — `DomainName` in the result is the name without its trailing `.tld`.
-
-```ruby
-dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-[
-  { 'TLD' => 'com', 'DomainName' => 'hello', 'Status' => 'notavailable', 'Command' => 'create',
-    'Period' => 1, 'IsFee' => false, 'Price' => '10.8100', 'Currency' => 'USD', 'Reason' => 'Domain exists' },
-  { 'TLD' => 'com', 'DomainName' => 'world123x0', 'Status' => 'available', 'Command' => 'create',
-    'Period' => 1, 'IsFee' => false, 'Price' => '10.8100', 'Currency' => 'USD', 'Reason' => nil }
-]
-```
-
-</details>
-
-#### Domain list
-
-`get_list(extra_parameters = {})` — `PageNumber` (0-based), `PageSize`, `OrderColumn`, `OrderDirection` and the gateway's own filters (e.g. `DomainName`).
-
-```ruby
-dna.get_list('OrderColumn' => 'Id', 'OrderDirection' => 'ASC', 'PageNumber' => 0, 'PageSize' => 1000)
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'data' => {
-    'Domains' => [
-      {
-        'ID' => 564346, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => '',
-        'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'false',
-        'Contacts' => { 'Billing' => { 'ID' => '' }, 'Technical' => { 'ID' => '' },
-                        'Administrative' => { 'ID' => '' }, 'Registrant' => { 'ID' => '' } },
-        'Dates' => { 'Start' => '2024-03-15T10:00:00', 'Expiration' => '2027-03-15T10:00:00', 'RemainingDays' => 126 },
-        'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-        'Additional' => {},
-        'ChildNameServers' => []
-      }
-    ]
-  },
-  'result'     => 'OK',
-  'TotalCount' => 1
-}
-```
-
-</details>
-
-#### TLD list
-
-`get_tld_list(count = 20)`
-
-```ruby
-dna.get_tld_list(100)
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'data' => [
-    {
-      'id' => 1, 'status' => 'Active', 'maxchar' => 63, 'maxperiod' => 10, 'minchar' => 1, 'minperiod' => 1,
-      'tld' => 'com',
-      'pricing' => {
-        'registration' => { '1' => '10.8100' },
-        'renew'        => { '1' => '11.0100' },
-        'transfer'     => { '1' => '10.6100' },
-        'restore'      => { '1' => '99.9000' }
-      },
-      'currencies' => { 'registration' => 'USD', 'renew' => 'USD', 'transfer' => 'USD', 'restore' => 'USD' }
-    }
-  ],
-  'result' => 'OK'
-}
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Domain
-
-#### Domain registration
-
-`register_with_contact_info(domain, period, contacts, name_servers = [], epp_lock = true, privacy_lock = false, additional_attributes = {})`
-
-Contacts use php-dna's keys. Both the flat shape below and the nested one returned by `get_contacts` (`Address => { Line1, City, ... }`, `Phone => { Phone => { Number, CountryCode } }`) are accepted; missing fields are completed and names, phones and countries are normalized (see `validate_contact`). With no nameservers, `ns1.domainnameapi.com` and `ns2.domainnameapi.com` are used.
-
-```ruby
-contact = {
-  'FirstName'        => 'John',
-  'LastName'         => 'Doe',
-  'Company'          => 'Example Corp',
-  'EMail'            => 'john.doe@example.com',
-  'AddressLine1'     => '123 Lorem Street',
-  'AddressLine2'     => 'Suite 456',
-  'AddressLine3'     => '',
-  'City'             => 'Springfield',
-  'Country'          => 'US',
-  'Fax'              => '1234567890',
-  'FaxCountryCode'   => '1',
-  'Phone'            => '9876543210',
-  'PhoneCountryCode' => 1,
-  'Type'             => 'Contact',
-  'ZipCode'          => '12345',
-  'State'            => 'IL'
-}
-
-dna.register_with_contact_info(
-  'example.com',
-  1,
-  { 'Administrative' => contact, 'Billing' => contact, 'Technical' => contact, 'Registrant' => contact },
-  ['ns1.example.com', 'ns2.example.com'],
-  true,
-  false
+client.domains.register_with_contacts(
+  domain_name: 'example.com',
+  name_servers: %w[ns1.example.net ns2.example.net],
+  contacts: owner # one Contact for all four roles, or { registrant: owner, admin: admin, tech: admin, billing: admin }
 )
 ```
 
-For `.tr` domains pass the TRABIS attributes as the 7th argument:
+Contacts can be `DomainNameApi::Contact` objects or Hashes of the same fields. They are tidied before sending:
+fields are trimmed, the country is upper-cased and phone fields keep only their digits
+(`'+90 (555) 123-45-67'` works). Some TLDs need registry attributes: find them with
+`client.products.tld('com.tr').required_attributes` and pass them as `tld_attributes:`.
+
+If the API answers but refuses (`"success": false`), the method raises `DomainNameApi::OperationError` with the
+API's message.
+
+### Renew, transfer, restore
 
 ```ruby
-# Individual owner
-{ 'TRABISDOMAINCATEGORY' => 1, 'TRABISCITIZIENID' => '12345678901' }
-# Company owner
-{ 'TRABISDOMAINCATEGORY' => 0, 'TRABISTAXOFFICE' => 'Istanbul VD', 'TRABISTAXNUMBER' => '1234567890' }
+check = client.domains.renew_check('example.com', years: 1)   # check.renewable?, check.premium_price
+client.domains.renew('example.com', years: 1)
+
+tc = client.domains.transfer_check('example.com', 'auth-code') # tc.transferable?, tc.auth_code_valid?
+client.domains.transfer('example.com', auth_code: 'auth-code')
+client.domains.transfer_status('example.com').status
+
+client.domains.restore('example.com') # during the redemption period
 ```
 
-The category is sent as `Owner`/`Corporate`, `TRABISCITIZIENID` as `TRABISCITIZENID`, and legacy keys (`TRABISNAMESURNAME`, `TRABISCOUNTRYID`, `TRABISCITYID`, ...) are dropped, because the gateway now reads them from the contact.
-
-<details>
-<summary>Sample output</summary>
+### Domain details and the domain list
 
 ```ruby
-{
-  'data' => {
-    'ID' => 123456, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => 'Xy9#mK2$pL5@vN8',
-    'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'false',
-    'Contacts' => { 'Billing' => { 'ID' => 987654 }, 'Technical' => { 'ID' => 987654 },
-                    'Administrative' => { 'ID' => 987654 }, 'Registrant' => { 'ID' => 987654 } },
-    'Dates' => { 'Start' => '2024-03-15T10:00:00', 'Expiration' => '2025-03-15T10:00:00', 'RemainingDays' => 365 },
-    'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-    'Additional' => {},
-    'ChildNameServers' => []
-  },
-  'result' => 'OK'
-}
+d = client.domains.info('example.com')
+d.status                # => #<DomainNameApi::DomainStatus Active (0)>
+d.expiration_date       # => 2027-03-15 10:20:30 UTC
+d.remaining_days, d.locked?, d.privacy_protection?, d.name_servers, d.auth_code, d.hosts
+d.contact(:registrant)&.email
+
+# One page
+page = client.domains.list(limit: 50, sort: 'expirationDate')
+page.total_count
+page.each { |domain| puts domain.domain_name }
+
+# Every domain; pages are fetched as you go
+client.domains.all(statuses: [:active]) do |domain|
+  puts "#{domain.domain_name} #{domain.expiration_date}"
+end
+client.domains.all.first(10) # an Enumerator without a block: fetches one page
 ```
 
-</details>
-
-#### Domain renewal
+### Lock, privacy, nameservers, child nameservers
 
 ```ruby
-dna.renew('example.com', 1)
+client.domains.lock('example.com')
+client.domains.unlock('example.com')
+client.domains.set_privacy('example.com', true)
+code = client.domains.update_auth_code('example.com')
+
+client.domains.set_name_servers('example.com', %w[ns1.example.net ns2.example.net])
+client.domains.set_name_servers('example.com', %w[ns1.other.net ns2.other.net], dnssec_mode: :disable) # signed domains
+
+client.domains.add_host('example.com', 'ns1.example.com', '192.0.2.10', '2001:db8::10') # IP version detected
+client.domains.update_host('example.com', 'ns1.example.com', ip_addresses: ['192.0.2.20'])
+client.domains.delete_host('example.com', 'ns1.example.com')
 ```
 
-<details>
-<summary>Sample output</summary>
+### Contacts of a domain
 
 ```ruby
-{ 'result' => 'OK', 'data' => { 'ExpirationDate' => '2025-03-15T10:00:00' } }
+client.domains.set_contact_handles('example.com', admin: 'DNA-2', tech: 'DNA-2') # other roles stay
+client.domains.update_contacts('example.com', billing: billing_contact)
+
+details = client.contacts.get('DNA-1')               # the contact and its verification state
+result = client.contacts.update('DNA-1', contact)    # updates every domain using the handle
+result.affected_domains.each { |a| puts "#{a.domain_name} #{a.new_handle}" }
+client.contacts.resend_verification('DNA-1')          # false when there is nothing to verify
 ```
-
-</details>
-
-#### Domain details
-
-```ruby
-dna.get_details('example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'data' => {
-    'ID' => 564346, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => 'DHQ!K52',
-    'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'true',
-    'Contacts' => { 'Billing' => { 'ID' => 'DNA-B-4' }, 'Technical' => { 'ID' => 'DNA-T-3' },
-                    'Administrative' => { 'ID' => 'DNA-A-2' }, 'Registrant' => { 'ID' => 'DNA-R-1' } },
-    'Dates' => { 'Start' => '2025-05-26T16:08:37', 'Expiration' => '2027-05-26T16:08:37', 'RemainingDays' => 449 },
-    'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-    'Additional' => {},
-    'ChildNameServers' => [{ 'ns' => 'ns1.example.com', 'ip' => '1.2.3.4' }]
-  },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### Sync from registry
-
-Same call and output as `get_details`.
-
-```ruby
-dna.sync_from_registry('example.com')
-```
-
-#### Nameserver modification
-
-Pass a list or a Hash (the values are used). Names are trimmed, lower-cased, stripped of a trailing dot and de-duplicated; the result reports that normalised list.
-
-```ruby
-dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServers' => ['ns1.example.com', 'ns2.example.com'] } }
-```
-
-</details>
-
-#### Enable domain lock
-
-```ruby
-dna.enable_theft_protection_lock('example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'LockStatus' => true } }
-```
-
-</details>
-
-#### Disable domain lock
-
-```ruby
-dna.disable_theft_protection_lock('example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'LockStatus' => false } }
-```
-
-</details>
-
-#### Modify domain privacy
-
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` may be `true`/`false` or a panel-style value: `1`, `'1'`, `'true'`, `'on'` and `'yes'` enable privacy, anything else disables it. The result reports the parsed boolean. `reason` is accepted for compatibility but not sent: the gateway has no such field.
-
-```ruby
-dna.modify_privacy_protection_status('example.com', true, 'Owner request')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'data' => { 'PrivacyProtectionStatus' => true }, 'result' => 'OK' }
-```
-
-</details>
-
-#### Get domain contacts
-
-Contact types are matched case-insensitively (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`); other types the registry returns are kept after the four standard ones.
-
-```ruby
-dna.get_contacts('example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'data' => {
-    'contacts' => {
-      'Administrative' => {
-        'ID' => 'DNA-A-2', 'Status' => 'Active', 'AuthCode' => '',
-        'FirstName' => 'Grace', 'LastName' => 'Hopper', 'Company' => '', 'EMail' => 'grace@example.com',
-        'Type' => 'Administrative',
-        'Address' => { 'Line1' => 'Example Street 2', 'Line2' => '', 'Line3' => '', 'State' => 'DC',
-                       'City' => 'Washington', 'Country' => 'US', 'ZipCode' => '20001' },
-        'Phone' => { 'Phone' => { 'Number' => '2025550100', 'CountryCode' => '1' },
-                     'Fax'   => { 'Number' => '2025550101', 'CountryCode' => '1' } },
-        'Additional' => {}
-      },
-      'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
-      # any other contact type the registry returns follows these four
-    }
-  },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### Save domain contacts
-
-```ruby
-dna.save_contacts('example.com', {
-  'Administrative' => contact,
-  'Billing'        => contact,
-  'Technical'      => contact,
-  'Registrant'     => contact
-})
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'contacts' => {} } }
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Child nameservers
-
-#### Add child nameserver
-
-```ruby
-dna.add_child_name_server('example.com', 'ns1.example.com', '1.2.3.4')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com', 'IPAdresses' => ['1.2.3.4'] } }
-```
-
-</details>
-
-#### Delete child nameserver
-
-```ruby
-dna.delete_child_name_server('example.com', 'ns1.example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com' } }
-```
-
-</details>
-
-#### Update child nameserver
-
-```ruby
-dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com', 'IPAdresses' => ['1.2.3.5'] } }
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Transfers
-
-#### Domain transfer
-
-`transfer(domain, epp_code, period)` — a transfer never sends contacts: the registrar handles them, so the request always carries an empty contact list and the method takes no contacts argument. Update contacts with `save_contacts` once the transfer has completed.
-
-```ruby
-dna.transfer('example.com', 'Xy9#mK2$', 3)
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'data' => { 'ID' => 0, 'Status' => 'WaitingForIncomingTransfer', 'DomainName' => 'example.com', ... },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### Check transfer
-
-`result` is `'OK'` only when the registry reports the domain as transferable.
-
-```ruby
-dna.check_transfer('example.com', 'Xy9#mK2$')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{
-  'result' => 'OK',
-  'data' => {
-    'TransferAvailabilityStatus' => true, 'AuthCodeIsRequired' => true, 'AuthCodeIsValid' => true,
-    'UserTransferRequired' => false, 'TransferLock' => false, 'Message' => '', 'MessageKey' => '',
-    'Additional' => {}
-  }
-}
-```
-
-</details>
-
-#### Cancel, approve or reject a transfer
-
-`cancel_transfer` cancels a pending incoming transfer; `approve_transfer` and `reject_transfer` answer a pending outgoing one.
-
-```ruby
-dna.cancel_transfer('example.com')
-dna.approve_transfer('example.com')
-dna.reject_transfer('example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Status' => 'Cancelled' } } # 'Approved' / 'Rejected'
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
 
 ### DNS zone
 
-Supported record types: `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (other types are rejected before any call). Names are relative (`'www'`); `''` or `'@'` is the zone apex, and a full name such as `'www.example.com'` is reduced to its label. Changes are applied immediately; pass `apply = false` to stage several and call `apply_resource_records` once. TTL is 1–86400 seconds.
-
-If the automatic apply fails, the method returns the apply error (the change stays staged, not live) instead of `OK`. The result reports the upper-cased type and the TTL that were actually sent.
-
-The gateway stores a name + type as one **set**: writing a set replaces all of its values, and deleting one value deletes the whole set. The `*_resource_record_value` methods do the read-merge-write for you.
-
-#### List records
-
 ```ruby
-dna.get_resource_records('example.com')
+client.dns.add('example.com', name: 'www', type: :a, values: '192.0.2.10', ttl: 600)
+client.dns.update('example.com', record_name: 'www', type: :a, values: %w[192.0.2.20 192.0.2.21]) # replaces the set
+client.dns.delete('example.com', name: 'www', type: :a, value: '192.0.2.20')
+
+client.dns.list('example.com').each do |set|
+  puts "#{set.name} #{set.type} #{set.ttl} #{set.values.join(', ')}"
+end
+
+client.dns.apply('example.com') # switch the domain to the platform nameservers
 ```
 
-<details>
-<summary>Sample output</summary>
+Names can be relative (`'www'`), the apex (`''` or `'@'`) or fully qualified. Record types are symbols or strings
+in any case (`:txt` and `'txt'` are sent as `TXT`). Validation catches what the API would reject: a CNAME at the
+apex, a CAA value without three parts, an MX value without a priority, an A record with an IPv6 address. The test
+environment answers every zone call with HTTP 500, so zone code can only be tried in production.
+
+### DNSSEC
 
 ```ruby
-{
-  'result' => 'OK',
-  'data' => {
-    'records' => [
-      { 'Name' => 'example.com.', 'Type' => 'MX', 'TTL' => 3600, 'Content' => '10 mail.example.com.', 'Disabled' => false },
-      { 'Name' => 'www.example.com.', 'Type' => 'A', 'TTL' => 3600, 'Content' => '192.0.2.10', 'Disabled' => false }
-    ]
-  }
-}
+results = client.dnssec.add('example.com', '2371 13 2 1F987CC6583E92DF0890718C42...') # as your DNS provider shows it
+info = client.dnssec.get('example.com') # info.status.signed?, info.ds_records
+client.dnssec.disable('example.com')
 ```
 
-</details>
-
-#### Replace a record set
-
-`set_resource_record_set(domain, name, type, contents, ttl = 3600, apply = true)` — an empty list removes the set.
-
-```ruby
-dna.set_resource_record_set('example.com', 'www', 'A', ['192.0.2.10', '192.0.2.11'], 3600)
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www', 'Type' => 'A', 'TTL' => 3600, 'Contents' => ['192.0.2.10', '192.0.2.11'] } }
-```
-
-</details>
-
-#### Add, replace or remove one value
-
-`add_resource_record_value(domain, name, type, value, ttl = nil, apply = true)`, `replace_resource_record_value(domain, name, type, old_value, new_value, ttl = nil, apply = true)`, `remove_resource_record_value(domain, name, type, value, apply = true)`. A `nil` TTL keeps the set's current TTL; adding a value that exists or removing one that does not is a no-op (`'Changed' => false`).
-
-```ruby
-dna.add_resource_record_value('example.com', '', 'MX', '10 mail.example.com.')
-dna.replace_resource_record_value('example.com', '', 'MX', '10 mail.example.com.', '20 mail.example.com.')
-dna.remove_resource_record_value('example.com', '', 'MX', '20 mail.example.com.')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => '', 'Type' => 'MX', 'TTL' => 3600, 'Contents' => ['10 mail.example.com.'] } }
-# value already present:
-{ 'result' => 'OK', 'data' => { 'Name' => '', 'Type' => 'MX', 'Contents' => ['10 mail.example.com.'], 'Changed' => false } }
-```
-
-</details>
-
-#### Delete a record set
-
-`delete_resource_record_set(domain, name, type, apply = true, known_value = '')` — removes every value of the set; nothing to remove is a success with `'Removed' => false`.
-
-```ruby
-dna.delete_resource_record_set('example.com', 'www', 'A')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www.example.com.', 'Type' => 'A', 'Content' => '192.0.2.10' } }
-```
-
-</details>
-
-#### Low-level record calls
-
-```ruby
-dna.add_resource_record('example.com', 'www', 'A', '192.0.2.10', 3600, true)
-dna.edit_resource_record('example.com', 'www', 'www', 'A', '192.0.2.20', 3600, true)
-dna.delete_resource_record('example.com', 'www.example.com.', '192.0.2.20', 'A', true)
-dna.apply_resource_records('example.com')
-```
-
-<details>
-<summary>Sample output</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www', 'Type' => 'A', 'TTL' => 3600, 'Content' => '192.0.2.10' } }   # add / edit
-{ 'result' => 'OK', 'data' => { 'Name' => 'www.example.com.', 'Type' => 'A', 'Content' => '192.0.2.20' } }    # delete
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }                                              # apply
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
+`DomainNameApi::DS.parse` reads the presentation format and whole zone-file lines; `DS.new(key_tag: ...,
+algorithm: :ecdsa_p256_sha256, digest_type: :sha256, digest: '...')` works too.
 
 ### URL forwarding
 
-Forward types: `'Standard'` (plain redirect) and `'Frame'` (masked). The gateway answers `Redirect information not found` when nothing is configured: `get_forwarding` then reports `'Enabled' => false` and `delete_forwarding` succeeds with `'Removed' => false`. Any other error, such as an unknown domain, is returned as an error.
-
 ```ruby
-dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
-dna.get_forwarding('example.com')
-dna.delete_forwarding('example.com')
+client.domains.set_forwarding('example.com', 'https://www.example.org')              # 301 redirect
+client.domains.set_forwarding('example.com', 'https://www.example.org', type: :frame) # masked
+f = client.domains.forwarding('example.com') # nil when the domain has none
+client.domains.delete_forwarding('example.com')
 ```
 
-<details>
-<summary>Sample output</summary>
+### Registry documents (.tr)
 
 ```ruby
-# set_forwarding
-{ 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# get_forwarding (nothing configured gives Enabled => false, not an error)
-{ 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding (Removed => false when nothing was configured)
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
+doc = DomainNameApi::DocumentUpload.from_file(:identity_card, 'id.pdf')
+client.domains.upload_documents('example.com.tr', doc)
+client.domains.documents('example.com.tr').each { |d| puts "#{d.name} #{d.status}" }
 ```
 
-</details>
+Files are base64-encoded for you; format (PDF, JPG, PNG, DOC, DOCX, ODT) and size (10 MB per file, 50 MB per
+request) are checked before upload.
 
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Utilities (no network)
-
-#### Is it a .tr domain?
+### SSL certificates
 
 ```ruby
-dna.is_tr_tld('example.com.tr') # => true
-dna.is_tr_tld('example.com')    # => false
+csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
+                              organization: 'Example Ltd', organization_unit: 'IT')
+client.ssl.purchase('example.com', package_code: 'PositiveSSL') # charges the balance (CLI: dna ssl initialize)
+client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+client.ssl.status('example.com').issued? # poll until true
+File.write('example.com.crt', client.ssl.content('example.com').chain)
 ```
 
-#### Validate a contact
-
-Completes and normalizes a contact the way registration does: digits and punctuation are removed from names, a missing state becomes the city, country names become ISO codes and phone numbers are split into number and country code. A number written with its own `+` or `00` calling code keeps that code even when another `PhoneCountryCode` was given (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
+### Hosting
 
 ```ruby
-dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')
+client.hosting.packages.each { |p| puts p.service_plans.map(&:service_plan) }
+created = client.hosting.create('example.com', service_plan: 'Linux-Starter') # charges the balance
+
+st = client.hosting.wait(created.service_id, timeout: 30 * 60) # polls until active
+puts st.panel_address, st.username, st.password
 ```
 
-<details>
-<summary>Sample output</summary>
+Never call `create` again for a hosting that is still provisioning: that charges twice.
+
+### Balance, prices and orders
 
 ```ruby
-{
-  'FirstName' => 'Jhn', 'Phone' => '5323743388', 'Country' => 'TR', 'LastName' => 'Isimyok',
-  'AddressLine1' => 'Addres yok', 'City' => 'ISTANBUL', 'State' => 'ISTANBUL', 'ZipCode' => '34000',
-  'PhoneCountryCode' => '90', 'Fax' => '', 'FaxCountryCode' => ''
-}
+account = client.account.get
+account.balance('USD')
+
+client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
+  puts "#{tx.creation_time} #{tx.type} #{tx.change}"
+end
+
+tld = client.products.tld('com.tr')
+tld&.register_price(1)&.to_s   # => "12.50 USD"
+
+client.products.info('com', order_type: :renew, years: 2) # price of a 2-year .com renewal
+client.orders.get('ORDER-CODE')
 ```
 
-</details>
+## Results, models and enums
 
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Settings
-
-| Method | Effect |
-|---|---|
-| `set_error_reporting_enabled(false)` | Turn telemetry off |
-| `set_telemetry_minimal(true)` | Send the minimal telemetry payload |
-| `set_ssl_verification(false)` | Skip TLS certificate verification (not recommended) |
-| `set_service_url(url)` | Use another gateway URL |
-| `set_transport(callable)` | Replace the HTTP transport (see below) |
-
-The HTTP transport is any object that responds to `call(request)`, where `request` is a Hash with `:method`, `:url`, `:headers`, `:body`, `:timeout`, `:connect_timeout` and `:verify_ssl`, and returns a `DomainNameApi::Response` (or a Hash with `:status`, `:body`, `:headers`). The default is `DomainNameApi::NetHttpTransport` (Net::HTTP). This is how the tests run without a network:
+Every result is a `DomainNameApi::Model`: snake_case readers, `?` predicates for flags, `Time` objects for dates,
+nested models and lists.
 
 ```ruby
-fake = ->(request) { DomainNameApi::Response.new(status: 200, body: '{"resellerId":"abc"}', headers: {}) }
-dna = DomainNameApi::Client.new(reseller_id, api_key, false, transport: fake)
+d = client.domains.info('example.com')
+d.locked?                 # also d.locked
+d.hosts.first.ip_addresses.first.address
+d.to_h                    # a plain Hash with snake_case keys
+d.raw                     # the JSON object as the API sent it, for fields this gem does not model
 ```
 
-<hr style="border: 4px solid #000; border-style: dashed;">
+Numeric and fixed-string values are enums (`DomainStatus`, `RecordType`, `ContactType`, `DocumentType`, ...):
 
-## Testing
+```ruby
+d.status.pending_delete?                       # a predicate per member
+d.status == DomainNameApi::DomainStatus::ACTIVE
+d.status == :active                            # symbols, names and numbers compare too
+d.status.to_s                                  # => "Active"
+d.status.to_i                                  # => 0
+DomainNameApi::DomainStatus.members            # all of them
+```
 
-The test suite uses only Minitest and never touches the network:
+Requests accept enums, symbols, names in any case or numbers: `statuses: [:active, 'PendingDelete', 7]`.
+
+Decoding is forgiving: dates without a timezone, `null`, `[]` instead of `{}`, numbers sent as strings, roles in
+any case (`"registrant"`, `"ADMINISTRATIVE"`) and values this gem does not know yet all decode instead of failing
+the call (`status.known?` is false for the last).
+
+## Requests and BaseRequest
+
+Every API operation is a request class: `DomainInfoRequest`, `DNSAddRequest`, `SSLConfigureRequest`, ... named
+after the CLI command (`dna domain renew` is `DomainRenewRequest`). They all inherit from
+`DomainNameApi::BaseRequest`, which supplies the plumbing: a class-level `endpoint` and `attribute` DSL, keyword
+initialisation, validation helpers, path templates and query/body builders. List requests inherit from
+`PagedRequest`, which adds `skip`, `limit` and `sort`. A request from this gem looks like this:
+
+```ruby
+class DomainRenewRequest < BaseRequest
+  endpoint :post, '/api/v1/domains/renew', safety: :billable
+  returns DomainOperationResult
+  attribute :domain_name
+  attribute :years
+
+  def body
+    domain_body.merge(optional('period' => years))
+  end
+
+  def validate
+    required :domain_name
+    check years.to_i.between?(1, 10), :years, 'must be between 1 and 10'
+  end
+end
+```
+
+The service methods build these for you. `client.call` sends any request, including classes of your own, for
+example to read only the fields you need or to call an endpoint this gem does not wrap yet:
+
+```ruby
+class Expiry < DomainNameApi::Model
+  field :expiration_date, :time
+  field :remaining_days, :integer, from: 'remainingDay'
+end
+
+class ExpiryRequest < DomainNameApi::BaseRequest
+  endpoint :get, '/api/v1/domains/info', safety: :read
+  returns Expiry            # leave it out to get the parsed JSON
+  attribute :domain_name
+
+  def query
+    params.string('DomainName', domain_name)
+  end
+
+  def validate
+    required :domain_name
+  end
+end
+
+expiry = client.call(ExpiryRequest.new(domain_name: 'example.com'))
+expiry.expiration_date
+```
+
+| Override       | Default         | Purpose                                                                     |
+|----------------|-----------------|-----------------------------------------------------------------------------|
+| `query`        | `nil`           | a `Query` (`params.string(...)`), a Hash or an Array of pairs                |
+| `body`         | `nil`           | a Hash or Array with the API's names; enums, models and times are converted |
+| `validate`     | nothing to check| report problems with `required`, `check`, `between`, `max_length`, `enum`   |
+| `decode(data)` | uses `returns`  | turn the parsed JSON into your result                                        |
+
+Path placeholders are filled from attributes and escaped: `endpoint :get, '/api/v1/contacts/{handle}'`.
+
+Your request gets everything the built-in ones get: credentials, retries, pacing, error normalisation,
+correlation IDs, tracing and read-only enforcement. `client.execute(request)` returns the whole `Response`
+(status, headers, raw body, correlation ID, quota, attempts) with the decoded result in `value`.
+`client.prepare(request)` validates and builds the exact HTTP request without sending it, to log or review a
+billable request before it goes out (the API key is masked in `inspect`).
+
+## Errors
+
+| Error                            | When                                                       | Useful methods                                                                 |
+|----------------------------------|------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `DomainNameApi::InputError`      | validation rejected the request; **nothing was sent**      | `request`, `fields`                                                            |
+| `DomainNameApi::APIError`        | the API answered with a non-2xx status                     | `status`, `code`, `api_message`, `details`, `fields`, `data`, `correlation_id`, `hint` |
+| `DomainNameApi::OperationError`  | the API answered 2xx with `"success": false`               | `code`, `api_message`, `correlation_id`                                        |
+| `DomainNameApi::NetworkError`    | the request did not complete (DNS, TLS, timeout, reset)    | `original`, `timeout?`                                                         |
+| `DomainNameApi::ReadOnlyError`   | a read-only client blocked a change; nothing was sent      | `safety`                                                                       |
+
+All of them inherit from `DomainNameApi::Error`, which answers the common questions: `kind` (`:auth`,
+`:not_found`, `:validation`, `:rejected`, `:conflict`, `:rate_limited`, `:server`, `:network`, `:invalid_input`,
+`:read_only`), `not_found?`, `auth?`, `rate_limited?`, `insufficient_balance?`, `outcome_unknown?`,
+`retryable?` and `code?(code)`.
+
+```ruby
+begin
+  client.domains.renew('example.com', years: 1)
+rescue DomainNameApi::Error => e
+  if e.outcome_unknown?
+    # The renewal may have gone through. Check the domain before trying again.
+  elsif e.insufficient_balance?
+  elsif e.not_found?
+  elsif e.code?(DomainNameApi::ErrorCode::PRIVACY_NOT_SUPPORTED)
+  elsif e.is_a?(DomainNameApi::APIError)
+    logger.error("#{e.code} #{e.api_message} #{e.hint} #{e.correlation_id}")
+  end
+end
+```
+
+Branch on `code`, not on the message: messages are localised. API codes look like
+`Dna.DomainService:Domain:10007`; the common ones are constants in `DomainNameApi::ErrorCode`, the rest are in the
+[error reference](https://www.domainnameapi.com/docs/reference/errors.md). Quote the `correlation_id` when
+contacting support.
+
+## Safety and reliability
+
+- **Safety classes.** Every request is `:read`, `:write`, `:destructive` or `:billable` (`request.safety`,
+  `request.billable?`). Some POST and PUT requests are reads (`DomainSearchRequest`, `SSLStatusRequest`).
+- **Read-only mode.** `read_only: true` blocks everything that is not a read, for reporting jobs and for
+  exploring production safely.
+- **Retries.** 429 answers are always retried, honouring `Retry-After`: the API rejects them before doing
+  anything. Network errors and 502/503/504 are retried only for reads and idempotent writes, so a registration
+  or renewal is never sent twice. After a failed billable request, check `e.outcome_unknown?`.
+- **Pacing.** The client spaces requests to stay under the per-key limits (5 requests/second, 2 searches/second,
+  one zone call per second). Turn it off with `pacing: false` if you pace yourself.
+- **Quota.** `client.execute(request).quota` exposes the soft-quota headers. Over the limit the API slows
+  responses down (up to 5 s) instead of rejecting them; the default 60 s timeout leaves room for that.
+- **Correlation IDs.** Each request carries an `X-Correlation-ID`. Set your own to tie API calls to your logs:
+  `DomainNameApi.with_correlation_id(job.id) { ... }` or `client.call(request, correlation_id: job.id)`.
+- **Observability.** `logger: Logger.new($stdout)` logs every exchange; `on_trace: ->(event) { ... }` hands you
+  every request, response and retry as a `TraceEvent`, for metrics or error reporting. The API key is never in
+  them; bodies can hold contact data, so mask them before storing.
+- **Threads.** A client is safe to share between threads. Create one and reuse it.
+- **Nothing else leaves your process.** No telemetry, no third-party services.
+
+## Client options
+
+| Option                       | Effect                                                                              |
+|------------------------------|-------------------------------------------------------------------------------------|
+| `environment: :ote`          | use the test environment (default `:production`)                                    |
+| `base_url: 'https://...'`    | send requests to a proxy or a test server                                           |
+| `timeout: 60`                | seconds per HTTP attempt                                                            |
+| `open_timeout: 10`           | seconds to connect                                                                  |
+| `user_agent: 'app/1.0'`      | put your product in front of the User-Agent                                         |
+| `currency: 'TRY'`            | currency of search and catalogue prices                                             |
+| `retries: 2`                 | retry count                                                                         |
+| `max_retry_wait: 30`         | the longest `Retry-After` the client waits for                                      |
+| `pacing: false`              | turn client-side pacing off                                                         |
+| `read_only: true`            | block every non-read request                                                        |
+| `logger: Logger.new($stdout)`| log exchanges: requests at debug, retries at warn, failures at error level          |
+| `on_trace: ->(event) {}`     | observe every request, response and retry                                           |
+| `transport: my_transport`    | your own HTTP layer (proxy, connection pool, ...): any object with `call(request)`  |
+
+`DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` is the default
+transport with a proxy or your own CA bundle. Redirects are never followed: the API answers 302 for an unknown
+or suspended reseller ID, which becomes an authentication error.
+
+## Testing your code
+
+Pass a transport that answers like the API; nothing else needs mocking:
+
+```ruby
+class FakeAPI
+  def call(request)
+    DomainNameApi::HTTPResponse.new(
+      status: 200, headers: {},
+      body: '{"success":true,"info":{"domainName":"example.com","status":"AVAILABLE","price":11.99,"currency":"USD"}}'
+    )
+  end
+end
+
+client = DomainNameApi::Client.new(reseller_id: 'r', api_key: 'k', transport: FakeAPI.new, pacing: false)
+client.domains.search('example.com').available? # => true
+```
+
+`request` is a `DomainNameApi::PreparedRequest` (`http_method`, `url`, `headers`, `body`), so the fake can also
+assert what was sent. WebMock and VCR work too, since the default transport is `Net::HTTP`.
+
+## Migrating from v1
+
+v2 is a new design: typed results instead of String-keyed Hashes, exceptions instead of `{'result' => 'ERROR'}`
+envelopes, and the full API instead of the php-dna method set. The gem name stays `domainnameapi`; pin
+`tag: 'v1.0.1'` to keep v1 until you switch.
+
+| v1                                                   | v2                                                                       |
+|------------------------------------------------------|--------------------------------------------------------------------------|
+| `Client.new(id, key, true)`                          | `Client.new(reseller_id: id, api_key: key, environment: :ote)`           |
+| `res['result'] == 'OK'`                              | no exception                                                             |
+| `get_reseller_details`, `get_current_balance`        | `account.get` (+ `account.balance('USD')`)                               |
+| `check_availability`                                 | `domains.search`, `domains.bulk_search`                                  |
+| `get_list`                                           | `domains.list`, `domains.all`                                            |
+| `get_tld_list`                                       | `products.tlds`, `products.all_tlds`, `products.tld`                     |
+| `get_details`, `get_contacts`, `sync_from_registry`  | `domains.info`                                                           |
+| `register_with_contact_info`                         | `domains.register_with_contacts` (or `contacts.create` + `domains.register`) |
+| `renew`, `transfer`, `check_transfer`                | `domains.renew`, `domains.transfer`, `domains.transfer_check`            |
+| `modify_name_server`                                 | `domains.set_name_servers`                                               |
+| `enable_theft_protection_lock` / `disable_...`       | `domains.lock` / `domains.unlock`                                        |
+| `modify_privacy_protection_status`                   | `domains.set_privacy`                                                    |
+| `save_contacts`                                      | `domains.update_contacts`, `domains.set_contact_handles`                 |
+| `add_child_name_server`, `modify_child_name_server`, `delete_child_name_server` | `domains.add_host`, `domains.update_host`, `domains.delete_host` |
+| `get_resource_records`                               | `dns.list`                                                               |
+| `add_resource_record`, `add_resource_record_value`   | `dns.add`                                                                |
+| `edit_resource_record`, `set_resource_record_set`, `replace_resource_record_value` | `dns.update`                               |
+| `delete_resource_record`, `remove_resource_record_value`, `delete_resource_record_set` | `dns.delete` (once per value)          |
+| `apply_resource_records`                             | `dns.apply`                                                              |
+| `get_forwarding`, `set_forwarding`, `delete_forwarding` | `domains.forwarding`, `domains.set_forwarding`, `domains.delete_forwarding` |
+| `cancel_transfer`, `approve_transfer`, `reject_transfer` | not in the published API; send a [request of your own](#requests-and-baserequest) if your account has them |
+| `is_tr_tld`, `validate_contact`                      | `name.end_with?('.tr')`; validation runs on every request                |
+| `get_request_data`, `get_response_data`, ...         | `on_trace:`, `logger:`, `client.execute(request)`                        |
+| telemetry (`set_error_reporting_enabled`, Sentry)    | removed: nothing leaves your process; forward `on_trace` events to your own reporting |
+| `set_ssl_verification(false)`                        | `transport: NetHTTPTransport.new(ca_file: ...)` with your own CA bundle  |
+
+## Development
 
 ```bash
 bundle install
+bundle exec rake test   # unit tests; none touches the network
+```
+
+`test/fixtures/openapi.json` is the API's OpenAPI document. The tests check every request class against it
+(method, path, query names, body fields, required fields), every response model's JSON names against the response
+schemas and every enum value, and fail when the API gains an operation without a request class. To update it:
+
+```bash
+curl -fsSL -A "ruby-dna-spec-update" -o test/fixtures/openapi.json https://api.domainresellerapi.com/swagger/v1/swagger.json
 bundle exec rake test
 ```
 
-`test/conformance_test.rb` runs php-dna's 126 conformance fixtures (`test/fixtures/conformance/`): for each scenario it checks the requests sent (method, path, query, JSON body, auth headers) and the returned value against what php-dna produced. The other tests cover the HTTP layer, error mapping, telemetry masking, the Net::HTTP transport and the utilities.
+See [AGENTS.md](AGENTS.md) for the conventions of this repository.
 
-<hr style="border: 4px solid #000; border-style: dashed;">
+## Support
 
-## Return and Error Codes with Descriptions
-
-| Code | Description                                    | Detail                                                                                                                                                         |
-|------|------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1000 | Command completed successfully                 | Operation successful.                                                                                                                                          |
-| 1001 | Command completed successfully; action pending | Operation successful. However, the operation is currently queued for completion.                                                                               |
-| 2003 | Required parameter missing                     | Parameter missing error. For example, no phone entry in contact information.                                                                                   |
-| 2105 | Object is not eligible for renewal             | Domain status is not suitable for renewal, locked for update operations. Status should not be "clientupdateprohibited". May be due to other status conditions. |
-| 2200 | Authentication error                           | Authorization error, security code is incorrect or domain is registered with another registrar.                                                                |
-| 2302 | Object exists                                  | Domain name or nameserver information already exists in database. Cannot be registered.                                                                        |
-| 2303 | Object does not exist                          | Domain name or nameserver information does not exist in database. New registration required.                                                                   |
-| 2304 | Object status prohibits operation              | Domain status is not suitable for updates, locked for update operations. Status should not be "clientupdateprohibited". May be due to other status conditions. |
-
-| CODE | DETAIL                                                                                                                               |
-|------|--------------------------------------------------------------------------------------------------------------------------------------|
-| 101  | System Error Detailed For ({0})!                                                                                                     |
-| 102  | Multiple Errors Detailed For ({0})!                                                                                                  |
-| 103  | Unknown Errors Detailed For ({0})!                                                                                                   |
-| 200  | API command not found ({0})!                                                                                                         |
-| 210  | API service not found ({0})!                                                                                                         |
-| 211  | API service provider not set!                                                                                                        |
-| 300  | Reseller not found!                                                                                                                  |
-| 301  | Your current IP address is not authorized to access. Please make sure you are connecting from an authorized IP address and try again |
-| 310  | TLD is not supported!                                                                                                                |
-| 320  | API not found!                                                                                                                       |
-| 321  | Currency is not supported!                                                                                                           |
-| 330  | Required parameter(s) not set ({0}).                                                                                                 |
-| –    | Make sure you send all contact objects full                                                                                          |
-| 340  | Price definition not found ({0}[{1}]-{2}{3}).                                                                                        |
-| 350  | Insufficient reseller balance. (Reseller Id : {0} - Current Balance : {1} {2}).                                                      |
-| 350  | Accounting currency does not match or the balance is not sufficient.                                                                 |
-| 360  | Invalid API request for field ({0}).                                                                                                 |
-| 360  | API quota exceeded!                                                                                                                  |
-| 361  | Throttled error!                                                                                                                     |
-| 362  | Premium domain is not available to register right now.                                                                               |
-| 363  | Operation cancelled because domain in auto-renewal period                                                                            |
-| 364  | This domain is currently unavailable for transaction due to a problem with the registry                                              |
-
-| CODE | DETAIL                                                                                      |
-|------|---------------------------------------------------------------------------------------------|
-| 400  | Invalid contact ({0}).                                                                      |
-| 401  | Contact info can not sync.                                                                  |
-| 402  | No access to contact information from registry.                                             |
-| 403  | THE SYSTEM HAS MISSING INFORMATION. ENTER YOUR DEFAULT INFORMATION OR CONTACT SUPPORT TEAM. |
-| 404  | DOMAIN CONTACT CANNOT UPDATE. PERMISSION FROM THE REGISTRY.                                 |
-| 410  | Contact not found.                                                                          |
-| 410  | Contact not found ({0}).                                                                    |
-| 420  | Invalid Api command for contact {0}.                                                        |
-| 430  | Contact api not found.                                                                      |
-| 440  | Contact is not synced.                                                                      |
-| 450  | Too many domain contacts!                                                                   |
-| 451  | Failed to proceed with contact update.                                                      |
-
-| CODE | DETAIL                                                                                                                               |
-|------|--------------------------------------------------------------------------------------------------------------------------------------|
-| 500  | Invalid domain id.                                                                                                                   |
-| 500  | Invalid domain id ({0}).                                                                                                             |
-| 501  | Domain could not synchronized({0})                                                                                                   |
-| 502  | Internal transfer failed                                                                                                             |
-| 503  | Domain registration is not available.                                                                                                |
-| 504  | Domain information does not match. Before :{0}                                                                                       |
-| 505  | Enter the Ip Address.                                                                                                                |
-| 506  | Domain Transfer Has Been Started But Contact Info Not Read.                                                                          |
-| 507  | Authorization error.                                                                                                                 |
-| 510  | Domain not found.                                                                                                                    |
-| 511  | Expired domains cannot be found.                                                                                                     |
-| 512  | Domain is not renewable.                                                                                                             |
-| 513  | Domain is not in updateable status. It must be active for to be updated                                                              |
-| 514  | Redemption Period Expected.                                                                                                          |
-| 520  | Invalid Api command for domain "{0}".                                                                                                |
-| 530  | Invalid domain period. Period must be {0} to {1} years. Requested period is {2} years.                                               |
-| 540  | Domain cannot be extended beyond {0} years from current date.                                                                        |
-| 550  | Invalid domain name. Domain must be {0} to {1} characters length. Requested domain name is {2} characters.                           |
-| 560  | Invalid name server count. Domain must have {0} to {1} name servers. Requested name server count is {2}.                             |
-| 561  | No name server information found in the incoming request                                                                             |
-| 570  | Idn not supported for tld "{0}".                                                                                                     |
-| 571  | Period invalid.                                                                                                                      |
-| 572  | Command invalid.                                                                                                                     |
-| 573  | Domain names not found.                                                                                                              |
-| 574  | TLD names not found.                                                                                                                 |
-| 575  | Domain is not in updateable status. It must be active for name servers to be updated                                                 |
-| 576  | Domain can be renewed in the last 1 month before the expire date                                                                     |
-| 580  | Transfer not supported for tld "{0}".                                                                                                |
-| 581  | Child name server not found                                                                                                          |
-| 582  | Transfer started by other reseller.                                                                                                  |
-| 583  | Transfer not initialized. Please contact the support team.                                                                           |
-| 584  | Object status prohibits operation                                                                                                    |
-| 590  | Auth code is required for this transfer.                                                                                             |
-| 591  | Auth code is not valid.                                                                                                              |
-| 592  | Transfer lock exists on domain.                                                                                                      |
-| 593  | Domain cannot be transferred, Status Information and Transfer Lock must comply with the required criteria. (Status Information: #ok) |
-| 594  | Domain name server address could not resolved ({0})                                                                                  |
-| 595  | Contact information can not be read (whois.registrar.tld) Please make sure that privacy protection status open                       |
-| 596  | Contact information could not verified                                                                                               |
-| 597  | Tld Not Found                                                                                                                        |
-| 598  | Unknown error occurred                                                                                                               |
-| 599  | Domain Forward Not Found                                                                                                             |
+- API documentation: <https://www.domainnameapi.com/docs/>
+- CLI and MCP server: <https://github.com/domainreseller/cli>
+- Website: <https://www.domainnameapi.com>
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).

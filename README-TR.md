@@ -1,7 +1,7 @@
 <div align="center">
-  <a href="README-TR.md"   >   TR <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/TR.png" alt="TR" height="20" /></a>
+  <a href="README-TR.md">TR <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/TR.png" alt="TR" height="20" /></a>
   <a href="README.md"> | EN <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/US.png" alt="EN" height="20" /></a>
-   <a href="README-DE.md"> | DE <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/DE.png" alt="DE" height="20" /></a>
+  <a href="README-DE.md"> | DE <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/DE.png" alt="DE" height="20" /></a>
   <a href="README-SA.md"> | SA <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/SA.png" alt="AR" height="20" /></a>
   <a href="README-NL.md"> | NL <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/NL.png" alt="NL" height="20" /></a>
   <a href="README-AZ.md"> | AZ <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/AZ.png" alt="AZ" height="20" /></a>
@@ -10,984 +10,598 @@
   <a href="README-IT.md"> | IT <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/IT.png" alt="IT" height="20" /></a>
 </div>
 
-# ruby-dna — Ruby için DomainNameAPI istemcisi
+# ruby-dna: Domain Name API için Ruby SDK'sı
 
-DomainNameAPI REST API üzerinden alan adlarını kaydedin, yenileyin ve transfer edin; kişi bilgilerini, nameserver'ları, child nameserver'ları, DNS bölgelerini ve URL yönlendirmelerini yönetin. `ruby-dna`, [php-dna](https://github.com/domainreseller/php-dna) kütüphanesinin birebir sadık bir portudur: aynı metotlar, ağa giden aynı istekler ve aynı dönüş değerleri — hepsi php-dna'nın uyumluluk (conformance) fixture'larına karşı doğrulanmıştır.
+[![CI](https://github.com/domainreseller/ruby-dna/actions/workflows/ci.yml/badge.svg)](https://github.com/domainreseller/ruby-dna/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## 📦 İndirme — her zaman Releases kullanın!
+[Domain Name API](https://www.domainnameapi.com) bayi REST API'si için Ruby istemcisi: alan adı sorgulama,
+kayıt, yenileme ve transfer, DNS, DNSSEC, iletişim kayıtları, SSL sertifikaları, hosting, siparişler, ürün
+kataloğu ve bakiyeniz.
 
-⬇️ **En güncel test edilmiş sürümü buradan indirin: https://github.com/domainreseller/ruby-dna/releases/latest**
+- **API'nin 64 işleminin tamamı**, [`dna` CLI](https://github.com/domainreseller/cli) ile aynı şekilde gruplanmıştır:
+  `dna domain info` komutu `client.domains.info`, `dna dns add` komutu `client.dns.add` karşılığıdır.
+- **Hash'ler değil, gerçek nesneler**: `domain.status.pending_delete?`, `domain.expiration_date` bir `Time` nesnesidir,
+  `availability.available?`, `tld.register_price(1)`.
+- **Her işlem bir istek sınıfıdır**; `DomainNameApi::BaseRequest` sınıfından türer ve herhangi bir şey gönderilmeden önce
+  kendini doğrular. Kendi isteklerinizi de aynı şekilde yazabilirsiniz.
+- **Varsayılan olarak güvenli**: ücretlendirilen istekler körlemesine yeniden denenmez, `read_only: true` değişiklikleri engeller,
+  istemci hız sınırlarının altında kalacak şekilde kendini ayarlar ve thread'ler arasında güvenle paylaşılabilir.
+- **Bağımlılık yok.** Ruby 3.1 veya üzeri, yalnızca standart kütüphane.
 
-> ⚠️ Yeşil **Code → Download ZIP** butonunu **kullanmayın** — bu buton ham geliştirme dalını (development branch) indirir. Release paketleri sürümlenmiş, test edilmiş ve canlı kullanıma hazırdır.
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key, environment: :ote)
 
-## Kurulum ve Entegrasyon Rehberi
+a = client.domains.search('example.com')
+puts "#{a.domain_name} is available for #{a.price} #{a.currency}" if a.available?
+```
 
-### Minimum Gereksinimler
+## İçindekiler
 
-- Ruby 2.7 veya daha üstü (Önerilen 3.3+)
-- Çalışma zamanı bağımlılığı yoktur: yalnızca standart kütüphane (`net/http`, `json`, `openssl`) kullanılır.
+- [Kurulum](#kurulum)
+- [Kimlik bilgileri ve ortamlar](#kimlik-bilgileri-ve-ortamlar)
+- [Servisler](#servisler)
+- [Kullanım](#kullanım)
+- [Sonuçlar, modeller ve enum'lar](#sonuçlar-modeller-ve-enumlar)
+- [API istekleri ve BaseRequest](#api-istekleri-ve-baserequest)
+- [Hatalar](#hatalar)
+- [Güvenlik ve güvenilirlik](#güvenlik-ve-güvenilirlik)
+- [Client seçenekleri](#client-seçenekleri)
+- [Kodunuzu test etme](#kodunuzu-test-etme)
+- [v1'den geçiş](#v1den-geçiş)
+- [Geliştirme](#geliştirme)
 
-### A) Bundler
+## Kurulum
+
+> ⬇️ [Releases](https://github.com/domainreseller/ruby-dna/releases/latest) sayfasından etiketlenmiş bir sürüm kullanın.
+> Yeşil **Code → Download ZIP** butonu size geliştirme dalını (development branch) verir.
+
+Bundler ile:
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.0.0'
 ```
+
+Ya da sürüme eklenmiş `.gem` dosyasını kurun:
 
 ```bash
-bundle install
+gem install ./domainnameapi-2.0.0.gem
 ```
-
-### B) Release içindeki gem dosyası
-
-[En son release](https://github.com/domainreseller/ruby-dna/releases/latest) sayfasından `domainnameapi-1.0.1.gem` dosyasını indirin, ardından:
-
-```bash
-gem install ./domainnameapi-1.0.1.gem
-```
-
-### C) Manuel kullanım
-
-Release arşivini indirin, `lib` klasörünü projenize kopyalayın ve [examples](examples) klasöründeki örnekleri inceleyin:
 
 ```ruby
-$LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'domainnameapi'
 ```
 
-## 🔑 API Bilgileri — Reseller ID ve API Key
+Çalıştırılabilir programlar [examples](examples) klasöründedir: `quickstart`, `register`, `expiring`, `dns`, `ssl` ve
+`custom_request`.
 
-Kütüphane DomainNameAPI REST API ile konuşur ve constructor'a verilen yalnızca iki bilgiye ihtiyaç duyar:
-
-| Parametre | Değer |
-|---|---|
-| Birinci | Reseller ID — `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` biçiminde UUID |
-| İkinci | API Key |
-
-> 💡 **Reseller ID** ve **API Key** bilgilerinizi DomainNameAPI panelinizdeki **API Ayarları** bölümünde bulabilirsiniz.
-> ⚠️ Bunlar **API bilgileridir** — panel giriş bilgileriniz burada **çalışmaz**.
-
-## Hızlı başlangıç
-
-```ruby
-require 'domainnameapi'
-
-reseller_id = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
-api_key     = 'your-api-key'
-
-# Canlı ortam
-dna = DomainNameApi::Client.new(reseller_id, api_key)
-
-# Test (OTE) ortamı
-dna = DomainNameApi::Client.new(reseller_id, api_key, true)
-
-result = dna.get_details('example.com')
-if result['result'] == 'OK'
-  puts result['data']['Dates']['Expiration']
-else
-  puts "#{result['error']['Code']}: #{result['error']['Message']}"
-end
+```bash
+DNA_RESELLER_ID=... DNA_API_KEY=... DNA_ENV=ote ruby examples/quickstart.rb example.com
 ```
 
-Metot adları php-dna'daki adların snake_case biçimidir (`getDetails` → `get_details`, `registerWithContactInfo` → `register_with_contact_info`); parametre sırası ve varsayılan değerler aynıdır. Sonuçlar **String anahtarlı** düz Ruby Hash ve Array'leridir ve php-dna'nın döndürdüğü yapıyla birebir aynıdır (`'LockStatus' => 'true'` gibi string bayraklar ve `'11.9900'` gibi biçimlendirilmiş fiyatlar dahil). Kimlik bilgilerinin baştaki ve sondaki boşlukları temizlenir; test modu bayrağı string değerleri de kabul eder: `"true"`, `"1"`, `"on"` ve `"yes"` test modu anlamına gelir, diğer her değer canlı ortam anlamına gelir.
+## Kimlik bilgileri ve ortamlar
 
-## Hata yönetimi
+Bayi panelinden (**API ayarları**) iki API kimlik bilgisi almanız gerekir. Panel giriş bilgileri çalışmaz.
 
-Metotlar API veya ağ sorunlarında asla exception fırlatmaz. Başarısız bir çağrı bir hata zarfı (error envelope) döndürür:
+| Kimlik bilgisi | Görünümü                               |
+|----------------|----------------------------------------|
+| Reseller ID    | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| API key        | uzun bir gizli dize                    |
 
-```ruby
-{
-  'result' => 'ERROR',
-  'error'  => {
-    'Code'    => 'API_404',
-    'Message' => 'The domain name you requested could not be found',
-    'Details' => '...'
-  }
-}
-```
-
-- Gateway hatalarında `Code` değeri `API_<HTTP durum kodu>` biçimindedir (`API_400`, `API_401`, `API_429`, `API_500`, ...). `301`/`302` yanıtı hatalı kimlik bilgisi anlamına gelir (`Invalid API credentials`).
-- Gateway kendi hata kodunu gönderdiğinde, zarf bu kodu `GatewayCode` olarak da taşır (örn. `'GatewayCode' => 'Dna.DomainService:Domain:10007'`); böylece bir `API_404` hatasını diğerinden ayırt edebilirsiniz.
-- Boş bir hata gövdesi, `HTTP 429 - Too Many Requests` gibi okunabilir bir mesaja dönüştürülür. Gateway'in mesajı kalıp (boilerplate) bir metin olduğunda ham yanıt gövdesi asla mesaj olarak kullanılmaz; bunun yerine gateway kodunu belirten sabit bir metin kullanılır.
-- Alan doğrulama hataları `Details` içinde düz metne indirgenir, örn. `Admin PostalCode - 'PostalCode' is required`.
-- Ağ hataları her zaman hata olarak döner, asla boş bir başarı olarak dönmez. Zaman aşımı `Could not reach the DomainNameAPI service: the connection timed out. (...)` şeklinde, diğer taşıma (transport) hataları ise `Curl error during request: ...` şeklinde görünür. Kodları curl'ün numaralarıyla `CURL_<n>` biçimindedir (`CURL_28` zaman aşımı, `CURL_6` DNS, `CURL_7` bağlantı reddedildi, `CURL_35`/`CURL_60` TLS, `CURL_56` bağlantı sıfırlandı); `API_<n>` ise HTTP durum kodlarına ayrılmıştır.
-- Gateway'in HTTP 200 ile ama `"success": false` olarak yanıtladığı bir kayıt, transfer veya yenileme işlemi başarı değil, reddedilmedir: `REGISTER_DOMAIN`, `TRANSFER_DOMAIN` veya `RENEW_DOMAIN` koduyla ve gateway'in mesajıyla birlikte hata zarfı döndürülür.
-- `get_current_balance` kendi zarf yapısını korur: `ErrorCode` ve `OperationMessage` ile birlikte `'OperationResult' => 'FAILED'`.
-- `check_availability` başarılı olduğunda düz bir liste, başarısız olduğunda hata zarfı döndürür.
-
-Yalnızca programcı hataları exception fırlatır (örneğin `contents` parametresi liste olmayan bir `set_resource_record_set` çağrısı `TypeError` fırlatır).
-
-Zaman aşımları çağrı başına 30 saniye, bağlantı kurmak için 10 saniyedir. DNS zone uç noktalarına yapılan çağrılar arasında en az bir saniye bırakılır, çünkü gateway art arda gelen yoğun isteklere `HTTP 429` ile yanıt verir.
-
-### Tanılama
+İki ortam vardır. **Test ortamı olan OTE ile başlayın**: kendi verisi ve kendi API anahtarı vardır; orada
+yaptığınız hiçbir şey ücret doğurmaz ve canlı alan adlarına dokunmaz.
 
 ```ruby
-dna.get_request_data         # son çağrının { 'url' => ..., 'method' => 'GET', 'payload' => {...} } bilgisi
-dna.get_response_data        # son çözümlenmiş yanıt gövdesi (veya { 'raw_response' => body })
-dna.get_response_headers     # { 'url', 'http_code', 'headers', 'total_time' }
-dna.get_parsed_response_data # son ayrıştırılmış gövde veya son hata { 'Code', 'Message', 'Details' }
-dna.get_last_function        # örn. 'request:GET domains/info'
-dna.get_service_url          # https://api.domainresellerapi.com/api/v1
-dna.set_service_url('https://ote.domainresellerapi.com/api/v1')
+# Test ortamı (OTE)
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: ote_api_key, environment: :ote)
+
+# Production (varsayılan): gerçek kayıtlar, gerçek ücretlendirme
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
 ```
 
-## Test modu
+`environment:`, panellerin sakladığı dizeleri de kabul eder: `'production'`, `'ote'`, `'test'` ve test modu bayrakları
+(`'true'`, `'1'`, `true`). `Client.from_env`, `dna` CLI ile aynı değişkenleri okur:
 
-OTE test gateway'ini (`https://ote.domainresellerapi.com/api/v1`) kullanmak için constructor'ın üçüncü argümanı olarak `true` verin. Canlı çağrılar `https://api.domainresellerapi.com/api/v1` adresine gider. Test modu ayrı test kimlik bilgileri kullanır.
-
-## Hata raporlama (telemetri)
-
-Bir API çağrısı başarısız olduğunda kütüphane, DomainNameAPI'nin kendi hata takip sistemine (Sentry) bir hata raporu gönderebilir. Başarılı çağrıların rastgele seçilen küçük bir kısmı (%4, ayrıca 1 saniyeden uzun süren her çağrı) performans kaydı olarak gönderilebilir. Bu, DomainNameAPI'nin sorunları bulup düzeltmesine yardımcı olur. Hata raporlama **varsayılan olarak açıktır**.
-
-**Gönderilenler:**
-
-- hata kodu ve mesajı
-- çağrılan uç nokta yolu ve HTTP yöntemi
-- çağrı süresi
-- kütüphane adı (`DomainNameAPI-Ruby`), kütüphane sürümü ve Ruby sürümü
-- bayi kimliği (Reseller ID) ve alan adı
-- sunucunun genel (public) IP adresi (arka planda `api.ipify.org` üzerinden öğrenilir)
-- sürecin çalıştığı işletim sistemi kullanıcı adı
-- API isteği ve yanıtı, alan adının kişi bilgileri dahil; yalnızca kimlik bilgileri maskelenir — EPP/transfer kodları, API anahtarları, parolalar ve token'lar `***` ile değiştirilir
-
-**Asla gönderilmeyenler:** okunabilir biçimde EPP/transfer kodları, API anahtarları, parolalar veya token'lar; hata izlerindeki (stack trace) metot argümanları.
-
-Beklenen ve yüksek hacimli hatalar (alan adı bulunamadı, yetersiz bakiye, geçersiz kimlik bilgileri, ...) raporlanmaz. Raporlar kısa zaman aşımlarıyla bir arka plan thread'inden gönderilir: çağrınızı asla yavaşlatmaz veya bozmaz.
-
-**Neden ve ne kadar süre:** veriler yalnızca kullanım ölçümü ve sorunların erken teşhisi için kullanılır; DomainNameAPI'nin kendi Sentry sunucusunda 30 gün saklanır, ardından otomatik olarak silinir.
-
-**Nasıl kapatılır:**
+| Değişken          | Anlamı                                                        |
+|-------------------|---------------------------------------------------------------|
+| `DNA_RESELLER_ID` | reseller ID                                                   |
+| `DNA_API_KEY`     | seçilen ortamın API anahtarı                                  |
+| `DNA_ENV`         | `production` (varsayılan) veya `ote`                          |
+| `DNA_TEST_MODE`   | `true` OTE'yi seçer (diğer DomainNameAPI SDK'larındaki gibi)  |
+| `DNA_BASE_URL`    | özel bir temel URL, ör. bir proxy                             |
 
 ```ruby
-dna = DomainNameApi::Client.new(reseller_id, api_key)
-dna.set_error_reporting_enabled(false)
+client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
 ```
 
-**Minimal mod** yalnızca hata kodu ve mesajını, uç noktayı, süreyi, sürüm bilgilerini ve Reseller ID'yi gönderir — istek/yanıt verisi, alan adı, sunucu IP'si veya kullanıcı adı gönderilmez:
+Yanlış bir anahtar veya ortam, ilk istekte `auth?` değeri true olan ve `hint` değeri neyin kontrol edileceğini söyleyen bir
+`APIError` ile başarısız olur; denemenin en ucuz yolu `client.account.get` çağrısıdır.
 
-```ruby
-dna.set_telemetry_minimal(true)
-```
+## Servisler
 
-> 🔒 **Güvenlik:** TLS sertifika doğrulaması açıktır. CA paketi güncel olmayan bir sunucuda `dna.set_ssl_verification(false)` ile kapatılabilir — önerilmez; CA paketini güncellemek daha doğru çözümdür.
+| Servis             | CLI grubu     | İşlemler                                                                                                                                                         |
+|--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
+| `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
+| `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
+| `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
+| `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
+| `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
+
+Zorunlu girdiler konumsal argüman olarak verilir (`info('example.com')`), geri kalan her şey keyword argümanıdır
+(`renew('example.com', years: 1)`). Çok sayıda isteğe bağlı girdisi olan işlemler keyword argümanları ya da bir istek nesnesi alır:
+`register(domain_name: ..., years: 1, ...)` ile `register(DomainNameApi::DomainRegisterRequest.new(...))` aynıdır.
+`ssl.purchase`, CLI'daki `dna ssl initialize` komutunun karşılığıdır (`initialize`, Ruby'de ayrılmış bir addır).
 
 ## Kullanım
 
-Tüm örnekler `dna = DomainNameApi::Client.new(reseller_id, api_key)` tanımlı olduğunu varsayar. Her metot için çalıştırılabilir betikler [examples](examples) klasöründedir.
+Tüm kod parçaları bir `client` olduğunu varsayar.
 
-### Hesap
-
-#### Reseller bilgileri
+### Arama
 
 ```ruby
-dna.get_reseller_details
+a = client.domains.search('example.com')
+a.available?            # a.price, a.currency, a.premium?, a.document_required?, a.reason
+
+client.domains.bulk_search('example.com', 'example.net', 'example.org').each do |r|
+  puts "#{r.domain_name} #{r.status} #{r.price}"
+end
 ```
 
-<details>
-<summary>Örnek çıktı</summary>
+`bulk_search`, 30 alan adından uzun listeleri birkaç isteğe böler. Fiyatlar hesabın para birimiyle, istemcinin
+`currency: 'TRY'` seçeneğiyle ya da `search('example.com', currency: 'USD')` ile verilen para birimiyle gelir.
+
+### Kayıt
+
+İletişim handle'ları ile (bir tane `contacts.create` ile oluşturun):
 
 ```ruby
-{
-  'result'   => 'OK',
-  'id'       => 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-  'active'   => true,
-  'name'     => 'example-reseller',
-  'balance'  => '601.64',
-  'currency' => 'USD',
-  'symbol'   => '$',
-  'balances' => [
-    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
-  ]
-}
+handle = client.contacts.create(
+  DomainNameApi::Contact.new(
+    first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com',
+    address: '1 Example Street', city: 'Istanbul', state: 'Istanbul', postal_code: '34000',
+    country: 'TR', phone_country_code: '90', phone: '5551234567'
+  )
+)
+
+result = client.domains.register(
+  domain_name: 'example.com', years: 1,
+  name_servers: %w[ns1.example.net ns2.example.net],
+  handles: handle # dört rolün tümü için tek bir handle veya { registrant: 'DNA-1', admin: 'DNA-2', tech: ..., billing: ... }
+)
+result.status           # result.domain_id, result.expiration_date
 ```
 
-</details>
-
-#### Güncel bakiye
-
-`get_current_balance(currency = 'USD')` — hesap `'USD'` ve `'TRY'` bakiyelerini bildirir. Diğer herhangi bir para biriminde (`'EUR'`, `'GBP'`, ...) çağrı `0.00` döndürmek yerine `'ErrorCode' => 'BALANCE'` ile başarısız olur.
+Satır içi iletişim bilgileri ile:
 
 ```ruby
-dna.get_current_balance('USD')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'ErrorCode'        => 0,
-  'OperationMessage' => 'Command completed succesfully.',
-  'OperationResult'  => 'SUCCESS',
-  'Balance'          => '601.64',
-  'CurrencyId'       => 2,
-  'CurrencyInfo'     => nil,
-  'CurrencyName'     => 'USD',
-  'CurrencySymbol'   => '$'
-}
-# get_current_balance('EUR')
-{
-  'ErrorCode'        => 'BALANCE',
-  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
-  'OperationResult'  => 'FAILED',
-  'Balance'          => '0.00',
-  'CurrencyId'       => 3,
-  'CurrencyInfo'     => nil,
-  'CurrencyName'     => 'EUR',
-  'CurrencySymbol'   => '€'
-}
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Arama ve listeler
-
-#### Alan adı uygunluğu kontrolü
-
-`check_availability(domains, extensions, period, command = 'create')` — sonuçtaki `DomainName`, sondaki `.tld` uzantısı olmadan alan adıdır.
-
-```ruby
-dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-[
-  { 'TLD' => 'com', 'DomainName' => 'hello', 'Status' => 'notavailable', 'Command' => 'create',
-    'Period' => 1, 'IsFee' => false, 'Price' => '10.8100', 'Currency' => 'USD', 'Reason' => 'Domain exists' },
-  { 'TLD' => 'com', 'DomainName' => 'world123x0', 'Status' => 'available', 'Command' => 'create',
-    'Period' => 1, 'IsFee' => false, 'Price' => '10.8100', 'Currency' => 'USD', 'Reason' => nil }
-]
-```
-
-</details>
-
-#### Alan adları listesi
-
-`get_list(extra_parameters = {})` — `PageNumber` (0 tabanlı), `PageSize`, `OrderColumn`, `OrderDirection` ve gateway'in kendi filtreleri (örn. `DomainName`).
-
-```ruby
-dna.get_list('OrderColumn' => 'Id', 'OrderDirection' => 'ASC', 'PageNumber' => 0, 'PageSize' => 1000)
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'data' => {
-    'Domains' => [
-      {
-        'ID' => 564346, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => '',
-        'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'false',
-        'Contacts' => { 'Billing' => { 'ID' => '' }, 'Technical' => { 'ID' => '' },
-                        'Administrative' => { 'ID' => '' }, 'Registrant' => { 'ID' => '' } },
-        'Dates' => { 'Start' => '2024-03-15T10:00:00', 'Expiration' => '2027-03-15T10:00:00', 'RemainingDays' => 126 },
-        'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-        'Additional' => {},
-        'ChildNameServers' => []
-      }
-    ]
-  },
-  'result'     => 'OK',
-  'TotalCount' => 1
-}
-```
-
-</details>
-
-#### TLD listesi
-
-`get_tld_list(count = 20)`
-
-```ruby
-dna.get_tld_list(100)
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'data' => [
-    {
-      'id' => 1, 'status' => 'Active', 'maxchar' => 63, 'maxperiod' => 10, 'minchar' => 1, 'minperiod' => 1,
-      'tld' => 'com',
-      'pricing' => {
-        'registration' => { '1' => '10.8100' },
-        'renew'        => { '1' => '11.0100' },
-        'transfer'     => { '1' => '10.6100' },
-        'restore'      => { '1' => '99.9000' }
-      },
-      'currencies' => { 'registration' => 'USD', 'renew' => 'USD', 'transfer' => 'USD', 'restore' => 'USD' }
-    }
-  ],
-  'result' => 'OK'
-}
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Alan adı
-
-#### Alan adı kaydı
-
-`register_with_contact_info(domain, period, contacts, name_servers = [], epp_lock = true, privacy_lock = false, additional_attributes = {})`
-
-Kişi bilgileri php-dna'nın anahtarlarını kullanır. Hem aşağıdaki düz yapı hem de `get_contacts` tarafından döndürülen iç içe yapı (`Address => { Line1, City, ... }`, `Phone => { Phone => { Number, CountryCode } }`) kabul edilir; eksik alanlar tamamlanır, isimler, telefonlar ve ülkeler normalize edilir (bkz. `validate_contact`). Nameserver verilmezse `ns1.domainnameapi.com` ve `ns2.domainnameapi.com` kullanılır.
-
-```ruby
-contact = {
-  'FirstName'        => 'John',
-  'LastName'         => 'Doe',
-  'Company'          => 'Example Corp',
-  'EMail'            => 'john.doe@example.com',
-  'AddressLine1'     => '123 Lorem Street',
-  'AddressLine2'     => 'Suite 456',
-  'AddressLine3'     => '',
-  'City'             => 'Springfield',
-  'Country'          => 'US',
-  'Fax'              => '1234567890',
-  'FaxCountryCode'   => '1',
-  'Phone'            => '9876543210',
-  'PhoneCountryCode' => 1,
-  'Type'             => 'Contact',
-  'ZipCode'          => '12345',
-  'State'            => 'IL'
-}
-
-dna.register_with_contact_info(
-  'example.com',
-  1,
-  { 'Administrative' => contact, 'Billing' => contact, 'Technical' => contact, 'Registrant' => contact },
-  ['ns1.example.com', 'ns2.example.com'],
-  true,
-  false
+client.domains.register_with_contacts(
+  domain_name: 'example.com',
+  name_servers: %w[ns1.example.net ns2.example.net],
+  contacts: owner # dört rolün tümü için tek bir Contact veya { registrant: owner, admin: admin, tech: admin, billing: admin }
 )
 ```
 
-`.tr` alan adları için TRABIS özniteliklerini 7. argüman olarak verin:
+İletişim bilgileri `DomainNameApi::Contact` nesneleri ya da aynı alanları içeren Hash'ler olabilir. Gönderilmeden önce düzenlenirler:
+alanların baş ve sonundaki boşluklar silinir, ülke kodu büyük harfe çevrilir ve telefon alanlarında yalnızca rakamlar tutulur
+(`'+90 (555) 123-45-67'` çalışır). Bazı TLD'ler sicil (registry) öznitelikleri ister: bunları
+`client.products.tld('com.tr').required_attributes` ile bulun ve `tld_attributes:` olarak iletin.
+
+API yanıt verip isteği reddederse (`"success": false`), metot API'nin mesajını taşıyan bir `DomainNameApi::OperationError`
+hatası fırlatır.
+
+### Yenileme, transfer, geri alma
 
 ```ruby
-# Bireysel sahip
-{ 'TRABISDOMAINCATEGORY' => 1, 'TRABISCITIZIENID' => '12345678901' }
-# Kurumsal sahip
-{ 'TRABISDOMAINCATEGORY' => 0, 'TRABISTAXOFFICE' => 'Istanbul VD', 'TRABISTAXNUMBER' => '1234567890' }
+check = client.domains.renew_check('example.com', years: 1)   # check.renewable?, check.premium_price
+client.domains.renew('example.com', years: 1)
+
+tc = client.domains.transfer_check('example.com', 'auth-code') # tc.transferable?, tc.auth_code_valid?
+client.domains.transfer('example.com', auth_code: 'auth-code')
+client.domains.transfer_status('example.com').status
+
+client.domains.restore('example.com') # itfa (redemption) döneminde
 ```
 
-Kategori `Owner`/`Corporate` olarak, `TRABISCITIZIENID` ise `TRABISCITIZENID` olarak gönderilir; eski anahtarlar (`TRABISNAMESURNAME`, `TRABISCOUNTRYID`, `TRABISCITYID`, ...) ise çıkarılır, çünkü gateway artık bu bilgileri kişi kaydından okur.
-
-<details>
-<summary>Örnek çıktı</summary>
+### Alan adı ayrıntıları ve alan adı listesi
 
 ```ruby
-{
-  'data' => {
-    'ID' => 123456, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => 'Xy9#mK2$pL5@vN8',
-    'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'false',
-    'Contacts' => { 'Billing' => { 'ID' => 987654 }, 'Technical' => { 'ID' => 987654 },
-                    'Administrative' => { 'ID' => 987654 }, 'Registrant' => { 'ID' => 987654 } },
-    'Dates' => { 'Start' => '2024-03-15T10:00:00', 'Expiration' => '2025-03-15T10:00:00', 'RemainingDays' => 365 },
-    'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-    'Additional' => {},
-    'ChildNameServers' => []
-  },
-  'result' => 'OK'
-}
+d = client.domains.info('example.com')
+d.status                # => #<DomainNameApi::DomainStatus Active (0)>
+d.expiration_date       # => 2027-03-15 10:20:30 UTC
+d.remaining_days, d.locked?, d.privacy_protection?, d.name_servers, d.auth_code, d.hosts
+d.contact(:registrant)&.email
+
+# Tek sayfa
+page = client.domains.list(limit: 50, sort: 'expirationDate')
+page.total_count
+page.each { |domain| puts domain.domain_name }
+
+# Tüm alan adları; sayfalar ilerledikçe getirilir
+client.domains.all(statuses: [:active]) do |domain|
+  puts "#{domain.domain_name} #{domain.expiration_date}"
+end
+client.domains.all.first(10) # blok verilmezse bir Enumerator döner: tek sayfa getirir
 ```
 
-</details>
-
-#### Alan adı yenileme
+### Kilit, gizlilik, name server'lar, child name server'lar
 
 ```ruby
-dna.renew('example.com', 1)
+client.domains.lock('example.com')
+client.domains.unlock('example.com')
+client.domains.set_privacy('example.com', true)
+code = client.domains.update_auth_code('example.com')
+
+client.domains.set_name_servers('example.com', %w[ns1.example.net ns2.example.net])
+client.domains.set_name_servers('example.com', %w[ns1.other.net ns2.other.net], dnssec_mode: :disable) # DNSSEC imzalı alan adları için
+
+client.domains.add_host('example.com', 'ns1.example.com', '192.0.2.10', '2001:db8::10') # IP sürümü otomatik algılanır
+client.domains.update_host('example.com', 'ns1.example.com', ip_addresses: ['192.0.2.20'])
+client.domains.delete_host('example.com', 'ns1.example.com')
 ```
 
-<details>
-<summary>Örnek çıktı</summary>
+### Bir alan adının iletişim kayıtları
 
 ```ruby
-{ 'result' => 'OK', 'data' => { 'ExpirationDate' => '2025-03-15T10:00:00' } }
+client.domains.set_contact_handles('example.com', admin: 'DNA-2', tech: 'DNA-2') # diğer roller aynı kalır
+client.domains.update_contacts('example.com', billing: billing_contact)
+
+details = client.contacts.get('DNA-1')               # iletişim kaydı ve doğrulama durumu
+result = client.contacts.update('DNA-1', contact)    # handle'ı kullanan tüm alan adlarını günceller
+result.affected_domains.each { |a| puts "#{a.domain_name} #{a.new_handle}" }
+client.contacts.resend_verification('DNA-1')          # doğrulanacak bir şey yoksa false
 ```
 
-</details>
-
-#### Alan adı detayları
+### DNS bölgesi
 
 ```ruby
-dna.get_details('example.com')
+client.dns.add('example.com', name: 'www', type: :a, values: '192.0.2.10', ttl: 600)
+client.dns.update('example.com', record_name: 'www', type: :a, values: %w[192.0.2.20 192.0.2.21]) # kümenin tamamını değiştirir
+client.dns.delete('example.com', name: 'www', type: :a, value: '192.0.2.20')
+
+client.dns.list('example.com').each do |set|
+  puts "#{set.name} #{set.type} #{set.ttl} #{set.values.join(', ')}"
+end
+
+client.dns.apply('example.com') # alan adını platformun name server'larına geçirir
 ```
 
-<details>
-<summary>Örnek çıktı</summary>
+İsimler göreli (`'www'`), kök (`''` veya `'@'`) ya da tam nitelikli olabilir. Kayıt türleri, herhangi bir harf biçiminde sembol veya
+dize olabilir (`:txt` ve `'txt'`, `TXT` olarak gönderilir). Doğrulama, API'nin reddedeceği durumları yakalar: kökte CNAME,
+üç parçası olmayan CAA değeri, önceliği olmayan MX değeri, IPv6 adresi içeren A kaydı. Test ortamı her bölge çağrısına
+HTTP 500 yanıtı verir; bu yüzden bölge kodu yalnızca production'da denenebilir.
+
+### DNSSEC
 
 ```ruby
-{
-  'data' => {
-    'ID' => 564346, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => 'DHQ!K52',
-    'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'true',
-    'Contacts' => { 'Billing' => { 'ID' => 'DNA-B-4' }, 'Technical' => { 'ID' => 'DNA-T-3' },
-                    'Administrative' => { 'ID' => 'DNA-A-2' }, 'Registrant' => { 'ID' => 'DNA-R-1' } },
-    'Dates' => { 'Start' => '2025-05-26T16:08:37', 'Expiration' => '2027-05-26T16:08:37', 'RemainingDays' => 449 },
-    'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-    'Additional' => {},
-    'ChildNameServers' => [{ 'ns' => 'ns1.example.com', 'ip' => '1.2.3.4' }]
-  },
-  'result' => 'OK'
-}
+results = client.dnssec.add('example.com', '2371 13 2 1F987CC6583E92DF0890718C42...') # DNS sağlayıcınızın gösterdiği haliyle
+info = client.dnssec.get('example.com') # info.status.signed?, info.ds_records
+client.dnssec.disable('example.com')
 ```
 
-</details>
-
-#### Kayıt kuruluşundan (registry) senkronizasyon
-
-`get_details` ile aynı çağrı ve aynı çıktı.
-
-```ruby
-dna.sync_from_registry('example.com')
-```
-
-#### Nameserver düzenlemesi
-
-Bir liste veya bir Hash verin (Hash'in değerleri kullanılır). İsimlerin baştaki ve sondaki boşlukları temizlenir, küçük harfe çevrilir, sondaki nokta kaldırılır ve tekrar edenler ayıklanır; sonuç bu normalize edilmiş listeyi bildirir.
-
-```ruby
-dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServers' => ['ns1.example.com', 'ns2.example.com'] } }
-```
-
-</details>
-
-#### Alan adı kilidini aktifleştirme
-
-```ruby
-dna.enable_theft_protection_lock('example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'LockStatus' => true } }
-```
-
-</details>
-
-#### Alan adı kilidini kaldırma
-
-```ruby
-dna.disable_theft_protection_lock('example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'LockStatus' => false } }
-```
-
-</details>
-
-#### Alan adı gizliliğini değiştirme
-
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` değeri `true`/`false` veya panel tarzı bir değer olabilir: `1`, `'1'`, `'true'`, `'on'` ve `'yes'` gizliliği açar, diğer her değer kapatır. Sonuç, ayrıştırılmış boolean değeri bildirir. `reason` uyumluluk için kabul edilir ancak gönderilmez: gateway'de böyle bir alan yoktur.
-
-```ruby
-dna.modify_privacy_protection_status('example.com', true, 'Owner request')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'data' => { 'PrivacyProtectionStatus' => true }, 'result' => 'OK' }
-```
-
-</details>
-
-#### Alan adı kişi bilgilerini alma
-
-Kişi türleri büyük/küçük harf duyarsız olarak eşleştirilir (`admin`/`administrative`, `tech`/`technical`, `registrant`/`owner`, `billing`); kayıt kuruluşunun (registry) döndürdüğü diğer türler dört standart türden sonra korunur.
-
-```ruby
-dna.get_contacts('example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'data' => {
-    'contacts' => {
-      'Administrative' => {
-        'ID' => 'DNA-A-2', 'Status' => 'Active', 'AuthCode' => '',
-        'FirstName' => 'Grace', 'LastName' => 'Hopper', 'Company' => '', 'EMail' => 'grace@example.com',
-        'Type' => 'Administrative',
-        'Address' => { 'Line1' => 'Example Street 2', 'Line2' => '', 'Line3' => '', 'State' => 'DC',
-                       'City' => 'Washington', 'Country' => 'US', 'ZipCode' => '20001' },
-        'Phone' => { 'Phone' => { 'Number' => '2025550100', 'CountryCode' => '1' },
-                     'Fax'   => { 'Number' => '2025550101', 'CountryCode' => '1' } },
-        'Additional' => {}
-      },
-      'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
-      # kayıt kuruluşunun döndürdüğü diğer kişi türleri bu dördünün ardından gelir
-    }
-  },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### Alan adı kişi bilgilerini kaydetme
-
-```ruby
-dna.save_contacts('example.com', {
-  'Administrative' => contact,
-  'Billing'        => contact,
-  'Technical'      => contact,
-  'Registrant'     => contact
-})
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'contacts' => {} } }
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Child nameserver'lar
-
-#### Child nameserver ekleme
-
-```ruby
-dna.add_child_name_server('example.com', 'ns1.example.com', '1.2.3.4')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com', 'IPAdresses' => ['1.2.3.4'] } }
-```
-
-</details>
-
-#### Child nameserver silme
-
-```ruby
-dna.delete_child_name_server('example.com', 'ns1.example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com' } }
-```
-
-</details>
-
-#### Child nameserver güncelleme
-
-```ruby
-dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com', 'IPAdresses' => ['1.2.3.5'] } }
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Transferler
-
-#### Alan adı transferi
-
-`transfer(domain, epp_code, period)` — transfer asla kişi bilgisi göndermez: kişi bilgilerini kayıt firması (registrar) yönetir; bu nedenle istek her zaman boş bir kişi listesi taşır ve metot kişi bilgisi argümanı almaz. Transfer tamamlandıktan sonra kişi bilgilerini `save_contacts` ile güncelleyin.
-
-```ruby
-dna.transfer('example.com', 'Xy9#mK2$', 3)
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'data' => { 'ID' => 0, 'Status' => 'WaitingForIncomingTransfer', 'DomainName' => 'example.com', ... },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### Transfer kontrolü
-
-`result` değeri yalnızca kayıt kuruluşu (registry) alan adını transfer edilebilir olarak bildirdiğinde `'OK'` olur.
-
-```ruby
-dna.check_transfer('example.com', 'Xy9#mK2$')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'result' => 'OK',
-  'data' => {
-    'TransferAvailabilityStatus' => true, 'AuthCodeIsRequired' => true, 'AuthCodeIsValid' => true,
-    'UserTransferRequired' => false, 'TransferLock' => false, 'Message' => '', 'MessageKey' => '',
-    'Additional' => {}
-  }
-}
-```
-
-</details>
-
-#### Transferi iptal etme, onaylama veya reddetme
-
-`cancel_transfer` bekleyen bir gelen transferi iptal eder; `approve_transfer` ve `reject_transfer` ise bekleyen bir giden transfere yanıt verir.
-
-```ruby
-dna.cancel_transfer('example.com')
-dna.approve_transfer('example.com')
-dna.reject_transfer('example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Status' => 'Cancelled' } } # 'Approved' / 'Rejected'
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### DNS zone
-
-Desteklenen kayıt türleri: `A`, `AAAA`, `ALIAS`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `PTR`, `SRV`, `TLSA`, `TXT` (diğer türler herhangi bir çağrı yapılmadan reddedilir). İsimler görelidir (`'www'`); `''` veya `'@'` zone kökünü (apex) ifade eder, `'www.example.com'` gibi tam bir isim ise kendi etiketine indirgenir. Değişiklikler hemen uygulanır; birden fazla değişikliği biriktirmek için `apply = false` verin ve ardından `apply_resource_records` metodunu bir kez çağırın. TTL 1–86400 saniye aralığındadır.
-
-Otomatik uygulama (apply) başarısız olursa metot `OK` yerine uygulama hatasını döndürür (değişiklik canlıya alınmaz, beklemede kalır). Sonuç, gerçekte gönderilen büyük harfe çevrilmiş türü ve TTL değerini bildirir.
-
-Gateway, bir isim + tür ikilisini tek bir **küme (set)** olarak saklar: bir kümeye yazmak kümenin tüm değerlerini değiştirir, bir değeri silmek ise kümenin tamamını siler. `*_resource_record_value` metotları okuma-birleştirme-yazma işlemini sizin yerinize yapar.
-
-#### Kayıtları listeleme
-
-```ruby
-dna.get_resource_records('example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{
-  'result' => 'OK',
-  'data' => {
-    'records' => [
-      { 'Name' => 'example.com.', 'Type' => 'MX', 'TTL' => 3600, 'Content' => '10 mail.example.com.', 'Disabled' => false },
-      { 'Name' => 'www.example.com.', 'Type' => 'A', 'TTL' => 3600, 'Content' => '192.0.2.10', 'Disabled' => false }
-    ]
-  }
-}
-```
-
-</details>
-
-#### Bir kayıt kümesini değiştirme
-
-`set_resource_record_set(domain, name, type, contents, ttl = 3600, apply = true)` — boş bir liste kümeyi kaldırır.
-
-```ruby
-dna.set_resource_record_set('example.com', 'www', 'A', ['192.0.2.10', '192.0.2.11'], 3600)
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www', 'Type' => 'A', 'TTL' => 3600, 'Contents' => ['192.0.2.10', '192.0.2.11'] } }
-```
-
-</details>
-
-#### Tek bir değer ekleme, değiştirme veya kaldırma
-
-`add_resource_record_value(domain, name, type, value, ttl = nil, apply = true)`, `replace_resource_record_value(domain, name, type, old_value, new_value, ttl = nil, apply = true)`, `remove_resource_record_value(domain, name, type, value, apply = true)`. `nil` TTL, kümenin mevcut TTL değerini korur; zaten var olan bir değeri eklemek veya olmayan bir değeri kaldırmak hiçbir işlem yapmaz (`'Changed' => false`).
-
-```ruby
-dna.add_resource_record_value('example.com', '', 'MX', '10 mail.example.com.')
-dna.replace_resource_record_value('example.com', '', 'MX', '10 mail.example.com.', '20 mail.example.com.')
-dna.remove_resource_record_value('example.com', '', 'MX', '20 mail.example.com.')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => '', 'Type' => 'MX', 'TTL' => 3600, 'Contents' => ['10 mail.example.com.'] } }
-# değer zaten mevcut:
-{ 'result' => 'OK', 'data' => { 'Name' => '', 'Type' => 'MX', 'Contents' => ['10 mail.example.com.'], 'Changed' => false } }
-```
-
-</details>
-
-#### Bir kayıt kümesini silme
-
-`delete_resource_record_set(domain, name, type, apply = true, known_value = '')` — kümenin tüm değerlerini kaldırır; kaldırılacak bir şey yoksa sonuç `'Removed' => false` ile başarılı döner.
-
-```ruby
-dna.delete_resource_record_set('example.com', 'www', 'A')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www.example.com.', 'Type' => 'A', 'Content' => '192.0.2.10' } }
-```
-
-</details>
-
-#### Düşük seviyeli kayıt çağrıları
-
-```ruby
-dna.add_resource_record('example.com', 'www', 'A', '192.0.2.10', 3600, true)
-dna.edit_resource_record('example.com', 'www', 'www', 'A', '192.0.2.20', 3600, true)
-dna.delete_resource_record('example.com', 'www.example.com.', '192.0.2.20', 'A', true)
-dna.apply_resource_records('example.com')
-```
-
-<details>
-<summary>Örnek çıktı</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www', 'Type' => 'A', 'TTL' => 3600, 'Content' => '192.0.2.10' } }   # ekleme / düzenleme
-{ 'result' => 'OK', 'data' => { 'Name' => 'www.example.com.', 'Type' => 'A', 'Content' => '192.0.2.20' } }    # silme
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }                                              # uygulama
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
+`DomainNameApi::DS.parse`, sunum biçimini (presentation format) ve zone dosyası satırlarının tamamını okur; `DS.new(key_tag: ...,
+algorithm: :ecdsa_p256_sha256, digest_type: :sha256, digest: '...')` da çalışır.
 
 ### URL yönlendirme
 
-Yönlendirme türleri: `'Standard'` (düz yönlendirme) ve `'Frame'` (maskeli). Yapılandırılmış bir yönlendirme yoksa gateway `Redirect information not found` yanıtını verir: bu durumda `get_forwarding` `'Enabled' => false` bildirir, `delete_forwarding` ise `'Removed' => false` ile başarılı döner. Bilinmeyen bir alan adı gibi diğer tüm hatalar hata olarak döndürülür.
-
 ```ruby
-dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
-dna.get_forwarding('example.com')
-dna.delete_forwarding('example.com')
+client.domains.set_forwarding('example.com', 'https://www.example.org')              # 301 yönlendirmesi
+client.domains.set_forwarding('example.com', 'https://www.example.org', type: :frame) # maskeli
+f = client.domains.forwarding('example.com') # alan adında yönlendirme yoksa nil
+client.domains.delete_forwarding('example.com')
 ```
 
-<details>
-<summary>Örnek çıktı</summary>
+### Sicil belgeleri (.tr)
 
 ```ruby
-# set_forwarding
-{ 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# get_forwarding (yapılandırılmış yönlendirme yoksa hata değil, Enabled => false döner)
-{ 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding (hiçbir şey yapılandırılmamışsa Removed => false)
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
+doc = DomainNameApi::DocumentUpload.from_file(:identity_card, 'id.pdf')
+client.domains.upload_documents('example.com.tr', doc)
+client.domains.documents('example.com.tr').each { |d| puts "#{d.name} #{d.status}" }
 ```
 
-</details>
+Dosyalar sizin için base64 ile kodlanır; biçim (PDF, JPG, PNG, DOC, DOCX, ODT) ve boyut (dosya başına 10 MB,
+istek başına 50 MB) yüklemeden önce kontrol edilir.
 
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Yardımcı araçlar (ağ bağlantısı gerektirmez)
-
-#### .tr alan adı mı?
+### SSL sertifikaları
 
 ```ruby
-dna.is_tr_tld('example.com.tr') # => true
-dna.is_tr_tld('example.com')    # => false
+csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
+                              organization: 'Example Ltd', organization_unit: 'IT')
+client.ssl.purchase('example.com', package_code: 'PositiveSSL') # bakiyeden ücret keser (CLI: dna ssl initialize)
+client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+client.ssl.status('example.com').issued? # true olana kadar sorgulayın
+File.write('example.com.crt', client.ssl.content('example.com').chain)
 ```
 
-#### Kişi bilgisini doğrulama
-
-Bir kişi kaydını, kayıt işleminin yaptığı şekilde tamamlar ve normalize eder: isimlerden rakamlar ve noktalama işaretleri çıkarılır, eksik eyalet/il bilgisi şehir ile doldurulur, ülke adları ISO kodlarına dönüştürülür ve telefon numaraları numara ve ülke kodu olarak ayrılır. Kendi `+` veya `00` ülke koduyla yazılmış bir numara, farklı bir `PhoneCountryCode` verilmiş olsa bile kendi kodunu korur (`'+1 202 555 0100'` → `'2025550100'` / `'1'`).
+### Hosting
 
 ```ruby
-dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')
+client.hosting.packages.each { |p| puts p.service_plans.map(&:service_plan) }
+created = client.hosting.create('example.com', service_plan: 'Linux-Starter') # bakiyeden ücret keser
+
+st = client.hosting.wait(created.service_id, timeout: 30 * 60) # aktif olana kadar sorgular
+puts st.panel_address, st.username, st.password
 ```
 
-<details>
-<summary>Örnek çıktı</summary>
+Hâlâ hazırlanmakta olan bir hosting için `create` metodunu bir daha çağırmayın: iki kez ücret alınır.
+
+### Bakiye, fiyatlar ve siparişler
 
 ```ruby
-{
-  'FirstName' => 'Jhn', 'Phone' => '5323743388', 'Country' => 'TR', 'LastName' => 'Isimyok',
-  'AddressLine1' => 'Addres yok', 'City' => 'ISTANBUL', 'State' => 'ISTANBUL', 'ZipCode' => '34000',
-  'PhoneCountryCode' => '90', 'Fax' => '', 'FaxCountryCode' => ''
-}
+account = client.account.get
+account.balance('USD')
+
+client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
+  puts "#{tx.creation_time} #{tx.type} #{tx.change}"
+end
+
+tld = client.products.tld('com.tr')
+tld&.register_price(1)&.to_s   # => "12.50 USD"
+
+client.products.info('com', order_type: :renew, years: 2) # 2 yıllık .com yenilemesinin fiyatı
+client.orders.get('ORDER-CODE')
 ```
 
-</details>
+## Sonuçlar, modeller ve enum'lar
 
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### Ayarlar
-
-| Metot | Etkisi |
-|---|---|
-| `set_error_reporting_enabled(false)` | Telemetriyi kapatır |
-| `set_telemetry_minimal(true)` | Minimal telemetri verisini gönderir |
-| `set_ssl_verification(false)` | TLS sertifika doğrulamasını atlar (önerilmez) |
-| `set_service_url(url)` | Başka bir gateway URL'i kullanır |
-| `set_transport(callable)` | HTTP taşıma katmanını (transport) değiştirir (aşağıya bakın) |
-
-HTTP taşıma katmanı, `call(request)` metoduna yanıt veren herhangi bir nesnedir; burada `request`, `:method`, `:url`, `:headers`, `:body`, `:timeout`, `:connect_timeout` ve `:verify_ssl` anahtarlarını içeren bir Hash'tir ve nesne bir `DomainNameApi::Response` (veya `:status`, `:body`, `:headers` anahtarlarını içeren bir Hash) döndürür. Varsayılan taşıma katmanı `DomainNameApi::NetHttpTransport`'tur (Net::HTTP). Testler ağ bağlantısı olmadan bu şekilde çalışır:
+Her sonuç bir `DomainNameApi::Model` nesnesidir: snake_case okuma metotları, bayraklar için `?` ile biten sorgu metotları, tarihler
+için `Time` nesneleri, iç içe modeller ve listeler.
 
 ```ruby
-fake = ->(request) { DomainNameApi::Response.new(status: 200, body: '{"resellerId":"abc"}', headers: {}) }
-dna = DomainNameApi::Client.new(reseller_id, api_key, false, transport: fake)
+d = client.domains.info('example.com')
+d.locked?                 # ayrıca d.locked
+d.hosts.first.ip_addresses.first.address
+d.to_h                    # snake_case anahtarlı düz bir Hash
+d.raw                     # API'nin gönderdiği haliyle JSON nesnesi; bu gem'in modellemediği alanlar için
 ```
 
-<hr style="border: 4px solid #000; border-style: dashed;">
+Sayısal ve sabit dizeli değerler enum'dur (`DomainStatus`, `RecordType`, `ContactType`, `DocumentType`, ...):
 
-## Testler
+```ruby
+d.status.pending_delete?                       # her üye için bir sorgu metodu
+d.status == DomainNameApi::DomainStatus::ACTIVE
+d.status == :active                            # semboller, adlar ve sayılarla da karşılaştırılabilir
+d.status.to_s                                  # => "Active"
+d.status.to_i                                  # => 0
+DomainNameApi::DomainStatus.members            # hepsi
+```
 
-Test paketi yalnızca Minitest kullanır ve asla ağa erişmez:
+İstekler enum'ları, sembolleri, herhangi bir harf biçimindeki adları veya sayıları kabul eder: `statuses: [:active, 'PendingDelete', 7]`.
+
+Çözümleme toleranslıdır: saat dilimi olmayan tarihler, `null`, `{}` yerine `[]`, dize olarak gönderilen sayılar, herhangi bir harf
+biçimindeki roller (`"registrant"`, `"ADMINISTRATIVE"`) ve bu gem'in henüz tanımadığı değerler, çağrıyı başarısız kılmak yerine
+çözümlenir (sonuncusu için `status.known?` false döner).
+
+## API istekleri ve BaseRequest
+
+Her API işlemi bir istek sınıfıdır: `DomainInfoRequest`, `DNSAddRequest`, `SSLConfigureRequest`, ... Adlarını CLI komutundan
+alırlar (`dna domain renew` komutu `DomainRenewRequest` karşılığıdır). Hepsi `DomainNameApi::BaseRequest` sınıfından türer; bu sınıf
+altyapıyı sağlar: sınıf düzeyinde `endpoint` ve `attribute` DSL'i, keyword argümanlarıyla başlatma, doğrulama yardımcıları, yol
+şablonları ve sorgu/gövde oluşturucuları. Liste istekleri, `skip`, `limit` ve `sort` ekleyen `PagedRequest` sınıfından
+türer. Bu gem'deki bir istek şöyle görünür:
+
+```ruby
+class DomainRenewRequest < BaseRequest
+  endpoint :post, '/api/v1/domains/renew', safety: :billable
+  returns DomainOperationResult
+  attribute :domain_name
+  attribute :years
+
+  def body
+    domain_body.merge(optional('period' => years))
+  end
+
+  def validate
+    required :domain_name
+    check years.to_i.between?(1, 10), :years, 'must be between 1 and 10'
+  end
+end
+```
+
+Servis metotları bunları sizin için oluşturur. `client.call`, kendi sınıflarınız dahil herhangi bir isteği gönderir; örneğin
+yalnızca ihtiyacınız olan alanları okumak ya da bu gem'in henüz sarmalamadığı bir uç noktayı çağırmak için:
+
+```ruby
+class Expiry < DomainNameApi::Model
+  field :expiration_date, :time
+  field :remaining_days, :integer, from: 'remainingDay'
+end
+
+class ExpiryRequest < DomainNameApi::BaseRequest
+  endpoint :get, '/api/v1/domains/info', safety: :read
+  returns Expiry            # yazmazsanız ayrıştırılmış JSON döner
+  attribute :domain_name
+
+  def query
+    params.string('DomainName', domain_name)
+  end
+
+  def validate
+    required :domain_name
+  end
+end
+
+expiry = client.call(ExpiryRequest.new(domain_name: 'example.com'))
+expiry.expiration_date
+```
+
+| Geçersiz kılınan | Varsayılan        | Amacı                                                                                    |
+|------------------|-------------------|------------------------------------------------------------------------------------------|
+| `query`          | `nil`             | bir `Query` (`params.string(...)`), bir Hash veya ikililerden oluşan bir Array            |
+| `body`           | `nil`             | API'nin adlarını kullanan bir Hash veya Array; enum'lar, modeller ve zamanlar dönüştürülür |
+| `validate`       | kontrol yok       | sorunları `required`, `check`, `between`, `max_length`, `enum` ile bildirin              |
+| `decode(data)`   | `returns` kullanılır | ayrıştırılmış JSON'u sonucunuza dönüştürün                                           |
+
+Yoldaki yer tutucular attribute'lardan doldurulur ve kaçışlanır (escape): `endpoint :get, '/api/v1/contacts/{handle}'`.
+
+İsteğiniz, yerleşik isteklerin sahip olduğu her şeye sahip olur: kimlik bilgileri, yeniden denemeler, hız ayarı, hata normalleştirme,
+korelasyon ID'leri, izleme ve salt okunur kısıtlama. `client.execute(request)`, çözümlenmiş sonuç `value` içinde olmak üzere `Response`
+nesnesinin tamamını (durum, başlıklar, ham gövde, korelasyon ID'si, kota, deneme sayısı) döndürür.
+`client.prepare(request)`, ücretlendirilen bir isteği gönderilmeden önce loglamak veya gözden geçirmek için tam HTTP isteğini doğrular ve
+göndermeden oluşturur (API anahtarı `inspect` çıktısında maskelenir).
+
+## Hatalar
+
+| Hata                             | Ne zaman                                                   | Faydalı metotlar                                                               |
+|----------------------------------|------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `DomainNameApi::InputError`      | doğrulama isteği reddetti; **hiçbir şey gönderilmedi**     | `request`, `fields`                                                            |
+| `DomainNameApi::APIError`        | API 2xx olmayan bir durum koduyla yanıt verdi              | `status`, `code`, `api_message`, `details`, `fields`, `data`, `correlation_id`, `hint` |
+| `DomainNameApi::OperationError`  | API 2xx ve `"success": false` ile yanıt verdi              | `code`, `api_message`, `correlation_id`                                        |
+| `DomainNameApi::NetworkError`    | istek tamamlanmadı (DNS, TLS, zaman aşımı, bağlantı kopması) | `original`, `timeout?`                                                       |
+| `DomainNameApi::ReadOnlyError`   | salt okunur bir istemci bir değişikliği engelledi; hiçbir şey gönderilmedi | `safety`                                                       |
+
+Hepsi, sık sorulan soruları yanıtlayan `DomainNameApi::Error` sınıfından türer: `kind` (`:auth`,
+`:not_found`, `:validation`, `:rejected`, `:conflict`, `:rate_limited`, `:server`, `:network`, `:invalid_input`,
+`:read_only`), `not_found?`, `auth?`, `rate_limited?`, `insufficient_balance?`, `outcome_unknown?`,
+`retryable?` ve `code?(code)`.
+
+```ruby
+begin
+  client.domains.renew('example.com', years: 1)
+rescue DomainNameApi::Error => e
+  if e.outcome_unknown?
+    # Yenileme gerçekleşmiş olabilir. Tekrar denemeden önce alan adını kontrol edin.
+  elsif e.insufficient_balance?
+  elsif e.not_found?
+  elsif e.code?(DomainNameApi::ErrorCode::PRIVACY_NOT_SUPPORTED)
+  elsif e.is_a?(DomainNameApi::APIError)
+    logger.error("#{e.code} #{e.api_message} #{e.hint} #{e.correlation_id}")
+  end
+end
+```
+
+Mesaj üzerinden değil, `code` üzerinden dallanın: mesajlar yerelleştirilir. API kodları
+`Dna.DomainService:Domain:10007` gibi görünür; sık kullanılanlar `DomainNameApi::ErrorCode` içinde sabit olarak bulunur, geri kalanlar
+[hata başvurusunda](https://www.domainnameapi.com/docs/reference/errors.md) yer alır. Destekle iletişime geçerken `correlation_id` değerini
+belirtin.
+
+## Güvenlik ve güvenilirlik
+
+- **Güvenlik sınıfları.** Her istek `:read`, `:write`, `:destructive` veya `:billable` sınıfındandır (`request.safety`,
+  `request.billable?`). Bazı POST ve PUT istekleri okumadır (`DomainSearchRequest`, `SSLStatusRequest`).
+- **Salt okunur mod.** `read_only: true`, okuma olmayan her şeyi engeller; raporlama işleri ve production'ı güvenle
+  keşfetmek içindir.
+- **Yeniden denemeler.** 429 yanıtları her zaman, `Retry-After` değerine uyularak yeniden denenir: API bunları herhangi bir
+  işlem yapmadan reddeder. Ağ hataları ve 502/503/504 yalnızca okumalar ve idempotent yazmalar için yeniden denenir; böylece bir kayıt
+  veya yenileme asla iki kez gönderilmez. Ücretlendirilen bir istek başarısız olduktan sonra `e.outcome_unknown?` değerini kontrol edin.
+- **Hız ayarı.** İstemci, anahtar başına sınırların altında kalmak için istekleri aralıklandırır (saniyede 5 istek, saniyede 2 arama,
+  saniyede bir bölge çağrısı). Hız ayarını kendiniz yapıyorsanız `pacing: false` ile kapatın.
+- **Kota.** `client.execute(request).quota`, yumuşak kota başlıklarını sunar. Sınır aşıldığında API yanıtları reddetmek yerine
+  yavaşlatır (en fazla 5 sn); varsayılan 60 sn zaman aşımı buna yer bırakır.
+- **Korelasyon ID'leri.** Her istek bir `X-Correlation-ID` taşır. API çağrılarını loglarınızla ilişkilendirmek için kendi değerinizi ayarlayın:
+  `DomainNameApi.with_correlation_id(job.id) { ... }` veya `client.call(request, correlation_id: job.id)`.
+- **Gözlemlenebilirlik.** `logger: Logger.new($stdout)` her alışverişi loglar; `on_trace: ->(event) { ... }` size her isteği, yanıtı
+  ve yeniden denemeyi bir `TraceEvent` olarak iletir; metrikler veya hata raporlama için kullanılabilir. API anahtarı bunların hiçbirinde
+  yer almaz; gövdeler iletişim bilgileri içerebilir, bu yüzden saklamadan önce maskeleyin.
+- **Thread'ler.** Bir istemci thread'ler arasında güvenle paylaşılabilir. Bir tane oluşturun ve yeniden kullanın.
+- **Sürecinizin dışına başka hiçbir şey çıkmaz.** Telemetri yok, üçüncü taraf servis yok.
+
+## Client seçenekleri
+
+| Seçenek                      | Etkisi                                                                              |
+|------------------------------|-------------------------------------------------------------------------------------|
+| `environment: :ote`          | test ortamını kullanır (varsayılan `:production`)                                   |
+| `base_url: 'https://...'`    | istekleri bir proxy'ye veya test sunucusuna gönderir                                |
+| `timeout: 60`                | HTTP denemesi başına saniye                                                         |
+| `open_timeout: 10`           | bağlantı kurmak için saniye                                                         |
+| `user_agent: 'app/1.0'`      | ürününüzü User-Agent'ın başına ekler                                                |
+| `currency: 'TRY'`            | arama ve katalog fiyatlarının para birimi                                           |
+| `retries: 2`                 | yeniden deneme sayısı                                                               |
+| `max_retry_wait: 30`         | istemcinin bekleyeceği en uzun `Retry-After` süresi                                 |
+| `pacing: false`              | istemci tarafı hız ayarını kapatır                                                  |
+| `read_only: true`            | okuma olmayan her isteği engeller                                                   |
+| `logger: Logger.new($stdout)`| alışverişleri loglar: istekleri debug, yeniden denemeleri warn, hataları error düzeyinde |
+| `on_trace: ->(event) {}`     | her isteği, yanıtı ve yeniden denemeyi gözlemler                                    |
+| `transport: my_transport`    | kendi HTTP katmanınız (proxy, bağlantı havuzu, ...): `call(request)` metodu olan herhangi bir nesne |
+
+`DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')`, bir proxy veya kendi CA paketinizle
+kullanılan varsayılan transport'tur. Yönlendirmeler asla izlenmez: API, bilinmeyen veya askıya alınmış bir reseller ID için 302 yanıtı
+verir ve bu bir kimlik doğrulama hatasına dönüşür.
+
+## Kodunuzu test etme
+
+API gibi yanıt veren bir transport verin; başka hiçbir şeyi mock'lamanız gerekmez:
+
+```ruby
+class FakeAPI
+  def call(request)
+    DomainNameApi::HTTPResponse.new(
+      status: 200, headers: {},
+      body: '{"success":true,"info":{"domainName":"example.com","status":"AVAILABLE","price":11.99,"currency":"USD"}}'
+    )
+  end
+end
+
+client = DomainNameApi::Client.new(reseller_id: 'r', api_key: 'k', transport: FakeAPI.new, pacing: false)
+client.domains.search('example.com').available? # => true
+```
+
+`request` bir `DomainNameApi::PreparedRequest` nesnesidir (`http_method`, `url`, `headers`, `body`); bu yüzden sahte transport neyin
+gönderildiğini de doğrulayabilir. Varsayılan transport `Net::HTTP` olduğu için WebMock ve VCR de çalışır.
+
+## v1'den geçiş
+
+v2 yeni bir tasarımdır: String anahtarlı Hash'ler yerine tipli sonuçlar, `{'result' => 'ERROR'}` zarfları yerine
+exception'lar ve php-dna metot kümesi yerine API'nin tamamı. Gem adı `domainnameapi` olarak kalır; geçiş yapana kadar v1'de kalmak için
+`tag: 'v1.0.1'` ile sabitleyin.
+
+| v1                                                   | v2                                                                       |
+|------------------------------------------------------|--------------------------------------------------------------------------|
+| `Client.new(id, key, true)`                          | `Client.new(reseller_id: id, api_key: key, environment: :ote)`           |
+| `res['result'] == 'OK'`                              | exception fırlatılmaması                                                 |
+| `get_reseller_details`, `get_current_balance`        | `account.get` (+ `account.balance('USD')`)                               |
+| `check_availability`                                 | `domains.search`, `domains.bulk_search`                                  |
+| `get_list`                                           | `domains.list`, `domains.all`                                            |
+| `get_tld_list`                                       | `products.tlds`, `products.all_tlds`, `products.tld`                     |
+| `get_details`, `get_contacts`, `sync_from_registry`  | `domains.info`                                                           |
+| `register_with_contact_info`                         | `domains.register_with_contacts` (veya `contacts.create` + `domains.register`) |
+| `renew`, `transfer`, `check_transfer`                | `domains.renew`, `domains.transfer`, `domains.transfer_check`            |
+| `modify_name_server`                                 | `domains.set_name_servers`                                               |
+| `enable_theft_protection_lock` / `disable_...`       | `domains.lock` / `domains.unlock`                                        |
+| `modify_privacy_protection_status`                   | `domains.set_privacy`                                                    |
+| `save_contacts`                                      | `domains.update_contacts`, `domains.set_contact_handles`                 |
+| `add_child_name_server`, `modify_child_name_server`, `delete_child_name_server` | `domains.add_host`, `domains.update_host`, `domains.delete_host` |
+| `get_resource_records`                               | `dns.list`                                                               |
+| `add_resource_record`, `add_resource_record_value`   | `dns.add`                                                                |
+| `edit_resource_record`, `set_resource_record_set`, `replace_resource_record_value` | `dns.update`                               |
+| `delete_resource_record`, `remove_resource_record_value`, `delete_resource_record_set` | `dns.delete` (her değer için bir kez)  |
+| `apply_resource_records`                             | `dns.apply`                                                              |
+| `get_forwarding`, `set_forwarding`, `delete_forwarding` | `domains.forwarding`, `domains.set_forwarding`, `domains.delete_forwarding` |
+| `cancel_transfer`, `approve_transfer`, `reject_transfer` | yayımlanan API'de yok; hesabınızda varsa [kendi isteğinizi](#api-istekleri-ve-baserequest) gönderin |
+| `is_tr_tld`, `validate_contact`                      | `name.end_with?('.tr')`; doğrulama her istekte çalışır                   |
+| `get_request_data`, `get_response_data`, ...         | `on_trace:`, `logger:`, `client.execute(request)`                        |
+| telemetry (`set_error_reporting_enabled`, Sentry)    | kaldırıldı: sürecinizin dışına hiçbir şey çıkmaz; `on_trace` olaylarını kendi raporlama sisteminize iletin |
+| `set_ssl_verification(false)`                        | kendi CA paketinizle `transport: NetHTTPTransport.new(ca_file: ...)`     |
+
+## Geliştirme
 
 ```bash
 bundle install
+bundle exec rake test   # birim testleri; hiçbiri ağa erişmez
+```
+
+`test/fixtures/openapi.json`, API'nin OpenAPI belgesidir. Testler her istek sınıfını bu belgeye göre (metot, yol, sorgu adları,
+gövde alanları, zorunlu alanlar), her yanıt modelinin JSON adlarını yanıt şemalarına göre ve her enum değerini kontrol eder;
+API, istek sınıfı olmayan bir işlem kazandığında başarısız olur. Güncellemek için:
+
+```bash
+curl -fsSL -A "ruby-dna-spec-update" -o test/fixtures/openapi.json https://api.domainresellerapi.com/swagger/v1/swagger.json
 bundle exec rake test
 ```
 
-`test/conformance_test.rb`, php-dna'nın 126 uyumluluk (conformance) fixture'ını (`test/fixtures/conformance/`) çalıştırır: her senaryo için gönderilen istekleri (yöntem, yol, sorgu, JSON gövdesi, kimlik doğrulama başlıkları) ve dönen değeri php-dna'nın ürettiği sonuçla karşılaştırır. Diğer testler HTTP katmanını, hata eşlemesini, telemetri maskelemesini, Net::HTTP taşıma katmanını ve yardımcı araçları kapsar.
+Bu deponun kuralları için [AGENTS.md](AGENTS.md) dosyasına bakın.
 
-<hr style="border: 4px solid #000; border-style: dashed;">
+## Destek
 
-## Dönüş ve Hata Kodları ile Açıklamaları
-
-| Kod   | Açıklama                                               | Detay                                                             |
-|-------|--------------------------------------------------------|-------------------------------------------------------------------|
-| 1000  | Command completed successfully                       | İşlem başarılı.                                                  |
-| 1001  | Command completed successfully; action pending.     | İşlem başarılı. Fakat işlem şu an tamamlanmak için kuyruğa alındı. |
-| 2003  | Required parameter missing                          | Parametre eksik hatası. Örneğin; Kontak bilgisinde telefon girişi yapılmaması. |
-| 2105  | Object is not eligible for renewal                  | Domain durumu yenilemeye müsait değil, güncelleme işlemlerine kilitlenmiştir. Durum durumu "clientupdateprohibited" olmamalı. Diğer durum durumlarından kaynaklanabilir. |
-| 2200  | Authentication error                               | Yetki hatası, güvenlik kodu hatalı veya domain başka bir kayıt firmasında bulunuyor. |
-| 2302  | Object exists                                      | Domain adı veya name server bilgisi veritabanında mevcut. Kayıt edilemez. |
-| 2303  | Object does not exist                              | Domain adı veya name server bilgisi veritabanında mevcut değil. Yeni kayıt oluşturulmalı. |
-| 2304  | Object status prohibits operation                  | Domain durumu güncellemeye müsait değildir, güncelleme işlemlerine kilitlenmiştir. Durum durumu "clientupdateprohibited" olmamalı. Diğer durum durumlarından kaynaklanabilir. |
-
-| KOD | DETAY                                                                                                                               |
-|-----|-------------------------------------------------------------------------------------------------------------------------------------|
-| 101 | Sistem Hatası Detayları ({0}) İçin!                                                                                                |
-| 102 | Çoklu Hatalar Detayları ({0}) İçin!                                                                                                |
-| 103 | Bilinmeyen Hatalar Detayları ({0}) İçin!                                                                                           |
-| 200 | API komutu bulunamadı ({0})!                                                                                                       |
-| 210 | API servisi bulunamadı ({0})!                                                                                                      |
-| 211 | API servis sağlayıcısı ayarlanmamış!                                                                                               |
-| 300 | Bayi bulunamadı!                                                                                                                   |
-| 301 | Mevcut IP adresiniz erişim için yetkilendirilmemiş. Yetkili IP adresinden bağlandığınızdan emin olun ve tekrar deneyin            |
-| 310 | TLD desteklenmiyor!                                                                                                                |
-| 320 | API bulunamadı!                                                                                                                    |
-| 321 | Para birimi desteklenmiyor!                                                                                                        |
-| 330 | Gerekli parametre(ler) ayarlanmadı ({0}).                                                                                          |
-| –   | Tüm iletişim nesnelerini tam olarak gönderdiğinizden emin olun                                                                     |
-| 340 | Fiyat tanımı bulunamadı ({0}[{1}]-{2}{3}).                                                                                         |
-| 350 | Yetersiz bayi bakiyesi. (Bayi Id : {0} - Mevcut Bakiye : {1} {2}).                                                                 |
-| 350 | Muhasebe para birimi eşleşmiyor veya bakiye yetersiz.                                                                              |
-| 360 | Alan ({0}) için geçersiz API isteği.                                                                                               |
-| 360 | API kotası aşıldı!                                                                                                                 |
-| 361 | Azaltma hatası!                                                                                                                    |
-| 362 | Premium domain şu anda kayıt için kullanılamıyor.                                                                                  |
-| 363 | Domain otomatik yenileme döneminde olduğu için işlem iptal edildi                                                                  |
-| 364 | Bu domain şu anda kayıt defteri ile ilgili bir sorun nedeniyle işlem için kullanılamıyor                                          |
-
-| KOD | DETAY                                                                                       |
-|-----|---------------------------------------------------------------------------------------------|
-| 400 | Geçersiz iletişim ({0}).                                                                   |
-| 401 | İletişim bilgisi senkronize edilemiyor.                                                    |
-| 402 | Kayıt defterinden iletişim bilgilerine erişim yok.                                         |
-| 403 | SİSTEMDE EKSİK BİLGİ VAR. VARSAYILAN BİLGİLERİNİZİ GİRİN VEYA DESTEK EKIBI İLE İLETİŞİME GEÇİN. |
-| 404 | DOMAIN İLETİŞİMİ GÜNCELLENEMİYOR. KAYIT DEFTERİNDEN İZİN.                                  |
-| 410 | İletişim bulunamadı.                                                                       |
-| 410 | İletişim bulunamadı ({0}).                                                                 |
-| 420 | İletişim {0} için geçersiz Api komutu.                                                     |
-| 430 | İletişim api'si bulunamadı.                                                                |
-| 440 | İletişim senkronize edilmemiş.                                                             |
-| 450 | Çok fazla domain iletişimi.. !                                                             |
-| 451 | İletişim güncellemesi ile ilerlenemedi.                                                    |
-
-| KOD | DETAY                                                                                                                               |
-|-----|-------------------------------------------------------------------------------------------------------------------------------------|
-| 500 | Geçersiz domain id.                                                                                                                 |
-| 500 | Geçersiz domain id ({0}).                                                                                                           |
-| 501 | Domain senkronize edilemedi({0})                                                                                                   |
-| 502 | İç transfer başarısız                                                                                                              |
-| 503 | Domain kaydı kullanılamıyor.                                                                                                       |
-| 504 | Domain bilgisi eşleşmiyor .. Önce :{0}                                                                                             |
-| 505 | IP Adresini girin.                                                                                                                 |
-| 506 | Domain Transferi Başlatıldı Ancak İletişim Bilgisi Okunamadı ..                                                                    |
-| 507 | Yetkilendirme hatası.                                                                                                              |
-| 510 | Domain bulunamadı.                                                                                                                 |
-| 511 | Süresi dolmuş domainler bulunamıyor.                                                                                               |
-| 512 | Domain yenilenemez.                                                                                                                |
-| 513 | Domain güncellenebilir durumda değil. Güncellenebilmesi için aktif olmalı                                                          |
-| 514 | Geri Alım Süresi Bekleniyor.                                                                                                       |
-| 520 | Domain "{0}" için geçersiz Api komutu.                                                                                             |
-| 530 | Geçersiz domain süresi. Süre {0} ile {1} yıl arasında olmalı. İstenen süre {2} yıl.                                               |
-| 540 | Domain mevcut tarihten itibaren {0} yılın ötesine uzatılamaz.                                                                      |
-| 550 | Geçersiz domain adı. Domain {0} ile {1} karakter uzunluğunda olmalı. İstenen domain adı {2} karakter.                             |
-| 560 | Geçersiz name server sayısı. Domain {0} ile {1} name server'a sahip olmalı. İstenen name server sayısı {2}.                       |
-| 561 | Gelen istekte name server bilgisi bulunamadı                                                                                       |
-| 570 | Idn tld "{0}" için desteklenmiyor.                                                                                                 |
-| 571 | Süre geçersiz.                                                                                                                     |
-| 572 | Komut geçersiz.                                                                                                                    |
-| 573 | Domain adları bulunamadı.                                                                                                          |
-| 574 | TLD adları bulunamadı.                                                                                                             |
-| 575 | Domain güncellenebilir durumda değil. Name server'ların güncellenmesi için aktif olmalı                                            |
-| 576 | Domain son kullanma tarihinden önceki son 1 ay içinde yenilenebilir                                                                |
-| 580 | Transfer tld "{0}" için desteklenmiyor.                                                                                            |
-| 581 | Alt name server bulunamadı                                                                                                         |
-| 582 | Transfer başka bayi tarafından başlatıldı.                                                                                         |
-| 583 | Transfer başlatılmadı. Lütfen destek ekibi ile iletişime geçin.                                                                    |
-| 584 | Nesne durumu işlemi yasaklıyor                                                                                                     |
-| 590 | Bu transfer için auth kodu gerekli.                                                                                                |
-| 591 | Auth kodu geçerli değil.                                                                                                           |
-| 592 | Domain üzerinde transfer kilidi mevcut.                                                                                            |
-| 593 | Domain transfer edilemiyor, Durum Bilgisi ve Transfer Kilidi gerekli kriterlere uymalı. (Durum Bilgisi: #ok)                      |
-| 594 | Domain name server adresi çözümlenemedi ({0})                                                                                      |
-| 595 | İletişim bilgisi okunamıyor (whois.registrar.tld) Gizlilik koruma durumunun açık olduğundan emin olun                             |
-| 596 | İletişim bilgisi doğrulanamadı                                                                                                     |
-| 597 | Tld Bulunamadı                                                                                                                     |
-| 598 | Bilinmeyen hata oluştu                                                                                                             |
-| 599 | Domain Yönlendirmesi Bulunamadı                                                                                                    |
+- API dokümantasyonu: <https://www.domainnameapi.com/docs/>
+- CLI ve MCP sunucusu: <https://github.com/domainreseller/cli>
+- Web sitesi: <https://www.domainnameapi.com>
 
 ## Lisans
 
-Apache License 2.0 — bkz. [LICENSE](LICENSE).
+Apache License 2.0. [LICENSE](LICENSE) dosyasına bakın.
