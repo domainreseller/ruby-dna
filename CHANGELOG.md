@@ -4,6 +4,48 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-11-20
+
+A new SDK, designed for Ruby and for the REST API instead of ported from php-dna. It follows the `dna` CLI and
+the v2 Go and .NET SDKs. See "Migrating from v1" in the README.
+
+### Added
+
+- All 64 operations of the REST API, grouped like the `dna` CLI: `client.account`, `contacts`, `domains`, `dns`,
+  `dnssec`, `ssl`, `hosting`, `orders` and `products`. New compared to v1: contact handles and verification,
+  registration with handles, renew check, restore, auth code update, registry documents, DNSSEC, SSL
+  certificates, hosting, orders, balance transactions and product prices.
+- Typed results (`DomainNameApi::Model` subclasses with snake_case readers, `?` predicates and `Time` dates),
+  enums with predicates (`domain.status.pending_delete?`) and tolerant decoding of the API's quirks: dates
+  without a timezone, `[]` instead of `{}`, numeric or named statuses, roles in any case. `Model#raw` keeps the
+  JSON as received.
+- A request class per operation (`DomainRegisterRequest`, `DNSAddRequest`, ...), each a subclass of
+  `DomainNameApi::BaseRequest` (or `PagedRequest`) with an `endpoint` / `attribute` / `returns` DSL. Requests
+  validate themselves before sending and have a safety class (`:read`, `:write`, `:destructive`, `:billable`).
+  `Client#call` sends your own subclasses too; `Client#execute` returns the whole `Response`;
+  `Client#prepare` builds a request without sending it.
+- Typed errors under `DomainNameApi::Error` (`APIError`, `OperationError` for `"success": false`, `InputError`,
+  `NetworkError`, `ReadOnlyError`) with `kind`, `not_found?`, `auth?`, `rate_limited?`, `insufficient_balance?`,
+  `outcome_unknown?`, `retryable?`, `code?` and `APIError#hint`.
+- Enumerators over paged lists that fetch pages as you go: `domains.all`, `account.all_transactions`,
+  `products.all_tlds`.
+- `Client.from_env` with the CLI's environment variables, `read_only:`, `currency:`, `logger:`, `on_trace:`,
+  `DomainNameApi.with_correlation_id`, quota headers in `Response#quota`, `hosting.wait` and a pluggable
+  `transport:`.
+- Retries on 429 for every request and on network errors and 502/503/504 only for requests that are safe to
+  repeat; client-side pacing under the rate limits; a client that is safe to share between threads.
+- Tests that check every request class, response model and enum against the API's OpenAPI document.
+
+### Removed
+
+- The php-dna compatible API: `Client.new(id, key, test_mode)`, the String-keyed result Hashes, the
+  `{'result' => 'ERROR'}` envelopes and the diagnostics getters (`get_request_data`, ...). Use `on_trace:` or
+  `logger:` instead.
+- Telemetry: the gem no longer sends anything to Sentry. Forward `on_trace` events to your own reporting.
+- `cancel_transfer`, `approve_transfer` and `reject_transfer`, which called endpoints that are not part of the
+  published API.
+- Support for Ruby 2.7 and 3.0; Ruby 3.1 or newer is required.
+
 ## [1.0.1] - 2026-11-14
 
 ### Changed
@@ -52,4 +94,6 @@ First release: a faithful Ruby port of [php-dna](https://github.com/domainresell
 - Runnable examples for every method, Minitest suite, GitHub Actions CI for Ruby 2.7–3.4.
 - README in English, Turkish, German, French, Italian, Dutch, Azerbaijani, Arabic and Simplified Chinese.
 
+[2.0.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v2.0.0
+[1.0.1]: https://github.com/domainreseller/ruby-dna/releases/tag/v1.0.1
 [1.0.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v1.0.0
