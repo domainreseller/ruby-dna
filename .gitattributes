@@ -1,0 +1,8 @@
+* text=auto
+*.rb text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.gemspec text eol=lf
+Gemfile text eol=lf
+Rakefile text eol=lf
+test/fixtures/openapi.json -diff linguist-generated=true

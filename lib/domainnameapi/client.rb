@@ -1,294 +1,413 @@
 # frozen_string_literal: true
 
+require 'json'
+require 'securerandom'
+require 'time'
+require 'uri'
+
 module DomainNameApi
-  # Public facade, the Ruby counterpart of php-dna's DomainNameAPI_PHPLibrary.
+  # Runs the block with a correlation ID: every request sent from it (by any
+  # client, on this thread or fiber) carries it in the X-Correlation-ID header.
+  # Without it each request gets a random one. The API logs it; quote it when
+  # contacting support.
   #
-  #   dna = DomainNameApi::Client.new('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'your-api-key')
-  #   dna.get_details('example.com')
-  #   # => { 'data' => { 'DomainName' => 'example.com', ... }, 'result' => 'OK' }
+  #   DomainNameApi.with_correlation_id(job.id) { client.domains.renew('example.com', years: 1) }
+  def self.with_correlation_id(id)
+    previous = Thread.current[:domainnameapi_correlation_id]
+    Thread.current[:domainnameapi_correlation_id] = id.to_s.strip.empty? ? nil : id.to_s.strip
+    yield
+  ensure
+    Thread.current[:domainnameapi_correlation_id] = previous
+  end
+
+  # Talks to the DomainNameAPI REST API. The services group the operations the
+  # same way the dna CLI groups its commands: `dna domain info` is
+  # client.domains.info, `dna dns add` is client.dns.add.
   #
-  # Every network method returns php-dna's result structure (Hashes with
-  # String keys) and never raises for API or transport errors: failures come
-  # back as { 'result' => 'ERROR', 'error' => { 'Code', 'Message', 'Details' } }
-  # (get_current_balance uses its own OperationResult envelope).
+  #   client = DomainNameApi::Client.new(reseller_id: '...', api_key: '...', environment: :ote)
+  #   client.domains.search('example.com').available?
+  #
+  # A client is safe to share between threads. Create one and reuse it: it paces
+  # requests to stay under the API's rate limits.
   class Client
-    attr_reader :rest
+    # The live environment: real domains, real charges.
+    PRODUCTION_URL = 'https://api.domainresellerapi.com'
+    # The test environment (Operational Test & Evaluation). It has its own data
+    # and its own API key; nothing you do there touches live domains or money.
+    OTE_URL = 'https://ote.domainresellerapi.com'
 
-    # @param reseller_id [String] Reseller ID (UUID) from the panel's API settings
-    # @param api_key [String] API key from the panel's API settings
-    # @param test_mode [Boolean, String] true (or "true"/"1"/"on"/"yes") for the OTE test gateway
-    # @param transport [#call, nil] custom HTTP transport (see NetHttpTransport)
-    # @param sentry_dsn [String, nil] override the telemetry DSN ('' disables telemetry)
-    # @param zone_min_interval [Numeric, nil] seconds between /domains/zones calls (default 1.0)
-    def initialize(reseller_id = '', api_key = '', test_mode = false, transport: nil, sentry_dsn: nil,
-                   zone_min_interval: nil)
-      reseller_id = Php.trim(reseller_id)
-      api_key = Php.trim(api_key)
-      test_mode = test_mode.is_a?(String) ? Php.filter_bool(test_mode) : Php.truthy?(test_mode)
-      @rest = Rest.new(reseller_id, api_key, test_mode, transport: transport, sentry_dsn: sentry_dsn,
-                                                       zone_min_interval: zone_min_interval)
+    ENVIRONMENTS = { production: PRODUCTION_URL, ote: OTE_URL }.freeze
+
+    # Environment variables read by Client.from_env: the ones the dna CLI uses.
+    ENV_RESELLER_ID = 'DNA_RESELLER_ID'
+    ENV_API_KEY = 'DNA_API_KEY'
+    ENV_ENVIRONMENT = 'DNA_ENV'      # "production" or "ote"
+    ENV_TEST_MODE = 'DNA_TEST_MODE'  # "true" selects OTE
+    ENV_BASE_URL = 'DNA_BASE_URL'    # overrides the environment's URL
+
+    METHODS = %w[GET POST PUT DELETE PATCH].freeze
+
+    # Account: balance and balance transactions (dna account).
+    attr_reader :account
+    # Contacts: reusable contact handles (dna contact).
+    attr_reader :contacts
+    # Domains: search, register, renew, transfer and manage domains (dna domain).
+    attr_reader :domains
+    # DNS: zone records of domains on the platform nameservers (dna dns).
+    attr_reader :dns
+    # DNSSEC: DS records of domains (dna dnssec).
+    attr_reader :dnssec
+    # SSL: certificates (dna ssl).
+    attr_reader :ssl
+    # Hosting: web hosting packages and services (dna hosting).
+    attr_reader :hosting
+    # Orders (dna order).
+    attr_reader :orders
+    # Products: the catalogue and prices of TLDs, SSL and other products (dna product).
+    attr_reader :products
+
+    attr_reader :base_url, :reseller_id, :currency, :retries, :max_retry_wait, :timeout, :open_timeout,
+                :user_agent, :transport
+
+    # Accepts :production, :ote and the spellings panels and the other SDKs
+    # store: "prod", "live", "test", "sandbox", and test-mode flags ("true",
+    # "1", "on", "yes" mean OTE).
+    def self.parse_environment(value)
+      return value if ENVIRONMENTS.key?(value)
+      return :ote if value == true
+      return :production if value == false || value.nil?
+
+      case value.to_s.strip.downcase
+      when '', 'production', 'prod', 'live', 'false', '0', 'off', 'no' then :production
+      when 'ote', 'test', 'testing', 'sandbox', 'true', '1', 'on', 'yes' then :ote
+      else raise ConfigurationError, "unknown environment #{value.inspect} (use :production or :ote)"
+      end
     end
 
-    # Account
+    # Creates a client from the environment variables the dna CLI uses:
+    # DNA_RESELLER_ID, DNA_API_KEY, DNA_ENV ("production" or "ote"; or
+    # DNA_TEST_MODE=true) and DNA_BASE_URL. Options given here win.
+    def self.from_env(env = nil, **options)
+      if env.nil?
+        # from_env('DNA_API_KEY' => ...) arrives as keywords with String keys.
+        given, options = options.partition { |k, _| k.is_a?(String) }.map(&:to_h)
+        env = given.empty? ? ENV : given
+      end
+      mode = env[ENV_ENVIRONMENT]
+      mode = env[ENV_TEST_MODE] if Util.blank?(mode)
+      settings = { environment: parse_environment(mode) }
+      settings[:base_url] = env[ENV_BASE_URL].strip unless Util.blank?(env[ENV_BASE_URL])
+      reseller_id = env[ENV_RESELLER_ID]
+      api_key = env[ENV_API_KEY]
+      if Util.blank?(reseller_id) || Util.blank?(api_key)
+        raise MissingCredentialsError, "#{ENV_RESELLER_ID} and #{ENV_API_KEY} must both be set (find both in the " \
+                                       'reseller panel under API settings)'
+      end
 
-    def get_reseller_details
-      @rest.get_reseller_details
+      new(reseller_id: reseller_id, api_key: api_key, **settings, **options)
     end
 
-    def get_current_balance(currency_id = 'USD')
-      @rest.get_current_balance(currency_id)
+    # Find the reseller ID (a UUID) and the API key in the reseller panel under
+    # API settings; production and OTE have different keys. Panel login details
+    # do not work. Surrounding whitespace is trimmed.
+    #
+    # Options:
+    # environment::    :production (default) or :ote
+    # base_url::       a custom base URL (a proxy or a test server); wins over environment
+    # timeout::        seconds per HTTP attempt (default 60). Keep it well above 5: over the
+    #                  soft quota the API delays responses by up to 5 seconds
+    # open_timeout::   seconds to connect (default 10)
+    # user_agent::     your product, put in front of the User-Agent: "my-panel/1.4"
+    # currency::       currency of search and catalogue prices ("USD", "TRY"); default: the account's
+    # retries::        how often a failed request is retried (default 2)
+    # max_retry_wait:: the longest Retry-After the client waits for, in seconds (default 30)
+    # pacing::         space requests under the rate limits (default true)
+    # read_only::      block every request that is not a read (default false)
+    # logger::         a Logger: exchanges at debug, retries at warn, failures at error level
+    # on_trace::       a callable (or several) receiving a TraceEvent for every request,
+    #                  response and retry
+    # transport::      the HTTP layer (default NetHTTPTransport.new)
+    def initialize(reseller_id:, api_key:, environment: :production, base_url: nil, timeout: 60, open_timeout: 10,
+                   user_agent: nil, currency: nil, retries: 2, max_retry_wait: 30, pacing: true, read_only: false,
+                   logger: nil, on_trace: nil, transport: nil)
+      @reseller_id = reseller_id.to_s.strip
+      @api_key = api_key.to_s.strip
+      raise MissingCredentialsError if @reseller_id.empty? || @api_key.empty?
+
+      @base_url = normalize_base_url(base_url.nil? ? ENVIRONMENTS.fetch(self.class.parse_environment(environment)) : base_url)
+      raise ConfigurationError, 'timeout must not be negative' if timeout.to_f.negative?
+
+      @timeout = timeout
+      @open_timeout = open_timeout
+      product = user_agent.to_s.strip
+      @user_agent = product.empty? ? USER_AGENT : "#{product} #{USER_AGENT}"
+      @currency = Util.blank?(currency) ? nil : currency.to_s.strip.upcase
+      @retries = [retries.to_i, 0].max
+      @max_retry_wait = max_retry_wait.to_f
+      @pacer = pacing ? Pacer.new : nil
+      @read_only = read_only ? true : false
+      @transport = transport || NetHTTPTransport.new
+      @tracers = Array(on_trace).compact
+      @tracers << logger_tracer(logger) if logger
+
+      @account = AccountService.new(self)
+      @contacts = ContactService.new(self)
+      @domains = DomainService.new(self)
+      @dns = DNSService.new(self)
+      @dnssec = DNSSECService.new(self)
+      @ssl = SSLService.new(self)
+      @hosting = HostingService.new(self)
+      @orders = OrderService.new(self)
+      @products = ProductService.new(self)
     end
 
-    # Search and lists
-
-    def check_availability(domains, extensions, period, command = 'create')
-      @rest.check_availability(domains, extensions, period, command)
+    # :ote when the client talks to the test environment, :production otherwise
+    # (also for custom base URLs).
+    def environment
+      @base_url == OTE_URL ? :ote : :production
     end
 
-    def get_list(extra_parameters = {})
-      @rest.get_list(extra_parameters)
+    def ote?
+      environment == :ote
     end
 
-    def get_tld_list(count = 20)
-      @rest.get_tld_list(count)
+    def read_only?
+      @read_only
     end
 
-    # Domain
-
-    def get_details(domain_name)
-      @rest.get_details(domain_name)
+    def pacing?
+      !@pacer.nil?
     end
 
-    def sync_from_registry(domain_name)
-      @rest.sync_from_registry(domain_name)
+    # Validates the request, sends it and returns the decoded result (see
+    # BaseRequest.returns). Use it for your own BaseRequest subclasses; the
+    # services call it for you.
+    #
+    # Raises InputError (validation failed; nothing was sent), ReadOnlyError
+    # (nothing was sent), APIError (non-2xx answer) or NetworkError.
+    def call(request, correlation_id: nil)
+      execute(request, correlation_id: correlation_id).value
     end
 
-    def get_contacts(domain_name)
-      @rest.get_contacts(domain_name)
+    # Like #call, but returns the Response: status, headers, raw body, decoded
+    # #value, correlation ID, quota, duration and number of attempts.
+    #
+    # Retries: 429 answers are always retried, honouring Retry-After (the API
+    # rejects them before doing anything). Network errors and 502/503/504 are
+    # retried only for reads and idempotent writes, so a registration or a
+    # renewal is never sent twice.
+    def execute(request, correlation_id: nil)
+      endpoint, query, body = prepare_parts(request)
+      corr = resolve_correlation_id(correlation_id)
+      started = monotonic
+      attempt = 0
+
+      loop do
+        attempt += 1
+        sleep_for(@pacer.reserve(endpoint.path)) if @pacer
+        prepared = build(endpoint, query, body, corr)
+        trace(:request, prepared, endpoint, corr, attempt, body: Util.truncate(body))
+
+        t0 = monotonic
+        begin
+          raw = @transport.call(prepared)
+        rescue StandardError => e
+          trace(:response, prepared, endpoint, corr, attempt, duration: monotonic - t0, error: e)
+          if endpoint.idempotent? && attempt <= @retries && retryable_network_error?(e)
+            wait = backoff(attempt)
+            trace(:retry, prepared, endpoint, corr, attempt, wait: wait, error: e)
+            sleep_for(wait)
+            next
+          end
+          raise NetworkError.new(http_method: endpoint.http_method, path: endpoint.path, original: e,
+                                 safety: endpoint.safety)
+        end
+
+        status, headers, text = unpack(raw)
+        response = Response.new(status: status, headers: headers, body: text,
+                                correlation_id: headers['x-correlation-id'] || corr,
+                                quota: Quota.from_headers(headers), duration: monotonic - started,
+                                attempts: attempt, request: request)
+        trace(:response, prepared, endpoint, corr, attempt, status: status, duration: monotonic - t0,
+                                                            body: Util.truncate(text), quota: response.quota)
+
+        if response.success?
+          response.value = request.decode(request.class.returns.nil? ? response.data : response.data!)
+          return response
+        end
+
+        retry_it = status == 429 || (endpoint.idempotent? && [502, 503, 504].include?(status))
+        if retry_it && attempt <= @retries
+          wait = retry_after(headers, attempt)
+          if wait <= @max_retry_wait
+            trace(:retry, prepared, endpoint, corr, attempt, status: status, wait: wait)
+            sleep_for(wait)
+            next
+          end
+        end
+
+        headers = headers.merge('x-correlation-id' => corr) if Util.blank?(headers['x-correlation-id'])
+        raise APIError.from_response(http_method: endpoint.http_method, path: endpoint.path, status: status,
+                                     headers: headers, body: text)
+      end
     end
 
-    def save_contacts(domain_name, contacts)
-      @rest.save_contacts(domain_name, contacts)
+    # Validates the request and returns the PreparedRequest #execute would send,
+    # without sending it: to log or review a billable request first. It carries
+    # your credentials in its headers.
+    def prepare(request, correlation_id: nil)
+      endpoint, query, body = prepare_parts(request)
+      build(endpoint, query, body, resolve_correlation_id(correlation_id))
     end
 
-    def modify_name_server(domain_name, name_servers)
-      @rest.modify_name_server(domain_name, name_servers)
+    # See DomainNameApi.with_correlation_id.
+    def with_correlation_id(id, &block)
+      DomainNameApi.with_correlation_id(id, &block)
     end
 
-    def enable_theft_protection_lock(domain_name)
-      @rest.enable_theft_protection_lock(domain_name)
+    def inspect
+      "#<DomainNameApi::Client #{environment} #{@base_url} reseller_id=#{@reseller_id.inspect}" \
+        "#{@read_only ? ' read_only' : ''}>"
+    end
+    alias to_s inspect
+
+    private
+
+    def prepare_parts(request)
+      unless request.is_a?(BaseRequest)
+        raise ArgumentError, "expected a DomainNameApi::BaseRequest, got #{request.nil? ? 'nil' : request.class}"
+      end
+
+      request.validate!
+      endpoint = request.endpoint
+      method = endpoint.http_method.to_s.strip.upcase
+      method = 'GET' if method.empty?
+      unless METHODS.include?(method)
+        raise ArgumentError, "#{request.class.request_name}: unsupported HTTP method #{endpoint.http_method.inspect}"
+      end
+
+      path = endpoint.path.to_s
+      path = "/#{path}" unless path.start_with?('/')
+      endpoint = Endpoint.new(http_method: method, path: path, safety: endpoint.safety, idempotent: endpoint.idempotent)
+      if @read_only && endpoint.safety != Safety::READ
+        raise ReadOnlyError.new(request.class.request_name, method, path, endpoint.safety)
+      end
+
+      body = request.body
+      [endpoint, Query.from(request.query), body.nil? ? nil : JSON.generate(Util.wire(body))]
     end
 
-    def disable_theft_protection_lock(domain_name)
-      @rest.disable_theft_protection_lock(domain_name)
+    def build(endpoint, query, body, corr)
+      url = @base_url + endpoint.path
+      url += "?#{query}" unless query.empty?
+      headers = {
+        'Accept' => 'application/json',
+        'User-Agent' => @user_agent,
+        'X-API-KEY' => @api_key,
+        '__reseller' => @reseller_id,
+        'X-Correlation-ID' => corr
+      }
+      headers['Content-Type'] = 'application/json' unless body.nil?
+      PreparedRequest.new(http_method: endpoint.http_method, url: url, headers: headers, body: body,
+                          timeout: @timeout, open_timeout: @open_timeout)
     end
 
-    # `status` accepts true/false and 1/"1"/"on"/"true"/"yes"; `reason` is
-    # accepted for compatibility and not sent (the gateway has no such field).
-    def modify_privacy_protection_status(domain_name, status, reason = 'Owner request')
-      @rest.modify_privacy_protection_status(domain_name, status, reason)
+    def unpack(raw)
+      status, headers, body =
+        case raw
+        when Hash then [raw[:status] || raw['status'], raw[:headers] || raw['headers'], raw[:body] || raw['body']]
+        when Array then raw
+        else [raw.status, raw.headers, raw.body]
+        end
+      normalized = {}
+      (headers || {}).each do |k, v|
+        normalized[k.to_s.downcase] = v.is_a?(Array) ? v.join(', ') : v.to_s
+      end
+      [Integer(status), normalized, body.to_s]
     end
 
-    def renew(domain_name, period)
-      @rest.renew(domain_name, period)
+    def resolve_correlation_id(given)
+      id = given.to_s.strip
+      id = Thread.current[:domainnameapi_correlation_id].to_s if id.empty?
+      id.empty? ? SecureRandom.hex(16) : id
     end
 
-    def register_with_contact_info(domain_name, period, contacts, name_servers = [], epp_lock = true,
-                                   privacy_lock = false, additional_attributes = {})
-      @rest.register_with_contact_info(domain_name, period, contacts, name_servers, epp_lock, privacy_lock,
-                                       additional_attributes)
+    def retryable_network_error?(error)
+      return false if error.is_a?(OpenSSL::SSL::SSLError)
+      return error.retryable? if error.respond_to?(:retryable?)
+
+      error.is_a?(Timeout::Error) || error.is_a?(SocketError) || error.is_a?(SystemCallError) ||
+        error.is_a?(IOError) || error.is_a?(EOFError) || error.is_a?(Net::HTTPBadResponse)
     end
 
-    # Child nameservers
-
-    def add_child_name_server(domain_name, name_server, ip_address)
-      @rest.add_child_name_server(domain_name, name_server, ip_address)
+    def backoff(attempt)
+      (0.5 * (2**(attempt - 1))) + (rand * 0.25)
     end
 
-    def delete_child_name_server(domain_name, name_server)
-      @rest.delete_child_name_server(domain_name, name_server)
+    def retry_after(headers, attempt)
+      raw = headers['retry-after'].to_s.strip
+      unless raw.empty?
+        seconds = Util.to_float(raw)
+        return seconds + 0.05 if seconds && seconds >= 0
+
+        begin
+          wait = Time.httpdate(raw) - Time.now
+          return wait if wait.positive?
+        rescue ArgumentError
+          nil
+        end
+      end
+      backoff(attempt)
     end
 
-    def modify_child_name_server(domain_name, name_server, ip_address)
-      @rest.modify_child_name_server(domain_name, name_server, ip_address)
+    def sleep_for(seconds)
+      sleep(seconds) if seconds.to_f.positive?
     end
 
-    # Transfers
-
-    # Contacts are never sent with a transfer: the registrar handles them,
-    # so the request always carries an empty contact list.
-    def transfer(domain_name, epp_code, period)
-      @rest.transfer(domain_name, epp_code, period)
+    def monotonic
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def cancel_transfer(domain_name)
-      @rest.cancel_transfer(domain_name)
+    def trace(kind, prepared, endpoint, corr, attempt, **fields)
+      return if @tracers.empty?
+
+      event = TraceEvent.new(kind: kind, http_method: endpoint.http_method, url: prepared.url,
+                             safety: endpoint.safety, correlation_id: corr, attempt: attempt, **fields)
+      @tracers.each { |t| t.call(event) }
     end
 
-    def approve_transfer(domain_name)
-      @rest.approve_transfer(domain_name)
+    def logger_tracer(logger)
+      lambda do |ev|
+        head = "dna: #{ev.http_method} #{ev.url} attempt=#{ev.attempt} correlation_id=#{ev.correlation_id}"
+        case ev.kind
+        when :request
+          logger.debug("#{head} request")
+        when :retry
+          reason = ev.error ? "error=#{ev.error.class}: #{ev.error.message}" : "status=#{ev.status}"
+          logger.warn("#{head} retrying in #{format('%.2f', ev.wait)}s #{reason}")
+        when :response
+          took = "duration=#{(ev.duration.to_f * 1000).round}ms"
+          if ev.error
+            logger.error("#{head} failed #{took} error=#{ev.error.class}: #{ev.error.message}")
+          elsif ev.status.to_i >= 400
+            logger.error("#{head} error response status=#{ev.status} #{took}")
+          else
+            logger.debug("#{head} response status=#{ev.status} #{took}")
+          end
+        end
+      end
     end
 
-    def reject_transfer(domain_name)
-      @rest.reject_transfer(domain_name)
-    end
+    def normalize_base_url(raw)
+      text = raw.to_s.strip.sub(%r{/+\z}, '')
+      uri = URI.parse(text)
+      unless %w[http https].include?(uri.scheme) && !Util.blank?(uri.host)
+        raise ConfigurationError, "invalid base URL #{raw.inspect} (want e.g. #{PRODUCTION_URL})"
+      end
 
-    def check_transfer(domain_name, auth_code)
-      @rest.check_transfer(domain_name, auth_code)
-    end
-
-    # DNS zone
-
-    def get_resource_records(domain_name)
-      @rest.get_resource_records(domain_name)
-    end
-
-    def add_resource_record(domain_name, name, type, content, ttl = 3600, apply = true)
-      @rest.add_resource_record(domain_name, name, type, content, ttl, apply)
-    end
-
-    def edit_resource_record(domain_name, record_name, name, type, content, ttl = 3600, apply = true)
-      @rest.edit_resource_record(domain_name, record_name, name, type, content, ttl, apply)
-    end
-
-    def delete_resource_record(domain_name, name, record, record_type, apply = true)
-      @rest.delete_resource_record(domain_name, name, record, record_type, apply)
-    end
-
-    def apply_resource_records(domain_name)
-      @rest.apply_resource_records(domain_name)
-    end
-
-    def set_resource_record_set(domain_name, name, type, contents, ttl = 3600, apply = true)
-      @rest.set_resource_record_set(domain_name, name, type, contents, ttl, apply)
-    end
-
-    def delete_resource_record_set(domain_name, name, type, apply = true, known_value = '')
-      @rest.delete_resource_record_set(domain_name, name, type, apply, known_value)
-    end
-
-    def add_resource_record_value(domain_name, name, type, value, ttl = nil, apply = true)
-      @rest.add_resource_record_value(domain_name, name, type, value, ttl, apply)
-    end
-
-    def remove_resource_record_value(domain_name, name, type, value, apply = true)
-      @rest.remove_resource_record_value(domain_name, name, type, value, apply)
-    end
-
-    def replace_resource_record_value(domain_name, name, type, old_value, new_value, ttl = nil, apply = true)
-      @rest.replace_resource_record_value(domain_name, name, type, old_value, new_value, ttl, apply)
-    end
-
-    # Forwarding
-
-    def get_forwarding(domain_name)
-      @rest.get_forwarding(domain_name)
-    end
-
-    def set_forwarding(domain_name, redirect_address, forward_type = 'Standard')
-      @rest.set_forwarding(domain_name, redirect_address, forward_type)
-    end
-
-    def delete_forwarding(domain_name)
-      @rest.delete_forwarding(domain_name)
-    end
-
-    # Utilities (no network)
-
-    def is_tr_tld(domain)
-      @rest.is_tr_tld(domain)
-    end
-    alias tr_tld? is_tr_tld
-
-    def validate_contact(contact)
-      @rest.validate_contact(contact)
-    end
-
-    # Diagnostics
-
-    def get_request_data
-      @rest.get_request_data
-    end
-
-    def set_request_data(request)
-      @rest.set_request_data(request)
-      self
-    end
-
-    def get_response_data
-      @rest.get_response_data
-    end
-
-    def set_response_data(response)
-      @rest.set_response_data(response)
-      self
-    end
-
-    def get_response_headers
-      @rest.get_response_headers
-    end
-
-    def set_response_headers(headers)
-      @rest.set_response_headers(headers)
-      self
-    end
-
-    def get_parsed_response_data
-      @rest.get_parsed_response_data
-    end
-
-    def set_parsed_response_data(response)
-      @rest.set_parsed_response_data(response)
-      self
-    end
-
-    def get_last_function
-      @rest.get_last_function
-    end
-
-    def set_last_function(function)
-      @rest.set_last_function(function)
-      self
-    end
-
-    def get_service_url
-      @rest.get_service_url
-    end
-
-    def set_service_url(url)
-      @rest.set_service_url(url)
-      nil
-    end
-
-    # Settings
-
-    def set_error_reporting_enabled(enabled)
-      @rest.set_error_reporting_enabled(enabled)
-    end
-
-    def set_telemetry_minimal(minimal)
-      @rest.set_telemetry_minimal(minimal)
-    end
-
-    def set_ssl_verification(enabled)
-      @rest.set_ssl_verification(enabled)
-    end
-
-    def set_sentry_dsn(dsn)
-      @rest.set_sentry_dsn(dsn)
-    end
-
-    def set_telemetry_sender(sender)
-      @rest.set_telemetry_sender(sender)
-    end
-
-    def set_transport(transport)
-      @rest.set_transport(transport)
-    end
-
-    def set_zone_min_interval(seconds)
-      @rest.zone_min_interval = seconds.to_f
-      nil
+      text
+    rescue URI::InvalidURIError
+      raise ConfigurationError, "invalid base URL #{raw.inspect} (want e.g. #{PRODUCTION_URL})"
     end
   end
 end

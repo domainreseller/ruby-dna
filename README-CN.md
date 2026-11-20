@@ -1,7 +1,7 @@
 <div align="center">
-  <a href="README-TR.md"   >   TR <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/TR.png" alt="TR" height="20" /></a>
+  <a href="README-TR.md">TR <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/TR.png" alt="TR" height="20" /></a>
   <a href="README.md"> | EN <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/US.png" alt="EN" height="20" /></a>
-   <a href="README-DE.md"> | DE <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/DE.png" alt="DE" height="20" /></a>
+  <a href="README-DE.md"> | DE <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/DE.png" alt="DE" height="20" /></a>
   <a href="README-SA.md"> | SA <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/SA.png" alt="AR" height="20" /></a>
   <a href="README-NL.md"> | NL <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/NL.png" alt="NL" height="20" /></a>
   <a href="README-AZ.md"> | AZ <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/AZ.png" alt="AZ" height="20" /></a>
@@ -10,984 +10,598 @@
   <a href="README-IT.md"> | IT <img style="padding-top: 8px" src="https://raw.githubusercontent.com/yammadev/flag-icons/master/png/IT.png" alt="IT" height="20" /></a>
 </div>
 
-# ruby-dna — 适用于 Ruby 的 DomainNameAPI 客户端
+# ruby-dna：Domain Name API 的 Ruby SDK
 
-通过 DomainNameAPI REST API 注册、续费和转移域名，管理联系人、名称服务器、子名称服务器、DNS 区域以及 URL 转发。`ruby-dna` 是 [php-dna](https://github.com/domainreseller/php-dna) 的忠实移植版本：方法相同、实际发出的请求相同、返回值也相同，并已通过 php-dna 的一致性测试用例（conformance fixtures）验证。
+[![CI](https://github.com/domainreseller/ruby-dna/actions/workflows/ci.yml/badge.svg)](https://github.com/domainreseller/ruby-dna/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## 📦 下载 — 请务必使用 Releases！
+[Domain Name API](https://www.domainnameapi.com) 经销商 REST API 的 Ruby 客户端：域名搜索、
+注册、续费与转入、DNS、DNSSEC、联系人、SSL 证书、主机托管、订单、产品
+目录以及账户余额。
 
-⬇️ **在此获取最新的经过测试的版本：https://github.com/domainreseller/ruby-dna/releases/latest**
+- **全部 64 个 API 操作**，分组方式与 [`dna` CLI](https://github.com/domainreseller/cli) 一致：
+  `dna domain info` 对应 `client.domains.info`，`dna dns add` 对应 `client.dns.add`。
+- **真正的对象，而不是 Hash**：`domain.status.pending_delete?`，`domain.expiration_date` 是 `Time` 对象，
+  `availability.available?`，`tld.register_price(1)`。
+- **每个操作都是一个请求类**，继承自 `DomainNameApi::BaseRequest`，并在发送任何内容之前先对自身进行校验。
+  你也可以用同样的方式编写自己的请求。
+- **默认安全**：计费请求绝不会被盲目重试，`read_only: true` 会阻止任何变更，客户端会自行
+  控制请求节奏以遵守速率限制，并且可以在多个线程之间安全共享。
+- **无依赖。** 需要 Ruby 3.1 或更高版本，仅使用标准库。
 
-> ⚠️ 请**不要**使用绿色的 **Code → Download ZIP** 按钮 — 它下载的是原始的开发分支。Release 包经过版本管理和测试，可直接用于生产环境。
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key, environment: :ote)
 
-## 安装和集成指南
+a = client.domains.search('example.com')
+puts "#{a.domain_name} is available for #{a.price} #{a.currency}" if a.available?
+```
 
-### 最低要求
+## 目录
 
-- Ruby 2.7 或更高版本（推荐 3.3+）
-- 无运行时依赖：仅使用标准库（`net/http`、`json`、`openssl`）。
+- [安装](#安装)
+- [凭据与环境](#凭据与环境)
+- [服务](#服务)
+- [用法](#用法)
+- [结果、模型与枚举](#结果模型与枚举)
+- [请求与 BaseRequest](#请求与-baserequest)
+- [错误](#错误)
+- [安全与可靠性](#安全与可靠性)
+- [客户端选项](#客户端选项)
+- [测试你的代码](#测试你的代码)
+- [从 v1 迁移](#从-v1-迁移)
+- [开发](#开发)
 
-### A) Bundler
+## 安装
+
+> ⬇️ 请使用 [Releases](https://github.com/domainreseller/ruby-dna/releases/latest) 中带标签的版本。绿色的
+> **Code → Download ZIP** 按钮下载的是开发分支。
+
+使用 Bundler：
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v1.0.1'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.0.0'
 ```
+
+或者安装发布版本附带的 `.gem` 文件：
 
 ```bash
-bundle install
+gem install ./domainnameapi-2.0.0.gem
 ```
-
-### B) 使用 Release 中的 gem 文件
-
-从[最新 Release](https://github.com/domainreseller/ruby-dna/releases/latest) 下载 `domainnameapi-1.0.1.gem`，然后执行：
-
-```bash
-gem install ./domainnameapi-1.0.1.gem
-```
-
-### C) 手动使用
-
-下载 Release 压缩包，将 `lib` 文件夹复制到您的项目中，并查看 [examples](examples) 文件夹中的示例：
-
-```ruby
-$LOAD_PATH.unshift File.expand_path('lib', __dir__)
-require 'domainnameapi'
-```
-
-## 🔑 API 凭据 — Reseller ID 与 API Key
-
-本库通过 DomainNameAPI REST API 通信，只需向构造函数传入两项凭据：
-
-| 参数 | 值 |
-|---|---|
-| 第一个 | Reseller ID — 形如 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` 的 UUID |
-| 第二个 | API Key |
-
-> 💡 您可以在 DomainNameAPI 面板的 **API 设置** 中找到您的 **Reseller ID** 和 **API Key**。
-> ⚠️ 这些是 **API 凭据** — 面板登录信息在此**无法使用**。
-
-## 快速开始
 
 ```ruby
 require 'domainnameapi'
+```
 
-reseller_id = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
-api_key     = 'your-api-key'
+可运行的程序位于 [examples](examples)：`quickstart`、`register`、`expiring`、`dns`、`ssl` 和
+`custom_request`。
 
-# 正式环境
-dna = DomainNameApi::Client.new(reseller_id, api_key)
+```bash
+DNA_RESELLER_ID=... DNA_API_KEY=... DNA_ENV=ote ruby examples/quickstart.rb example.com
+```
 
-# 测试（OTE）环境
-dna = DomainNameApi::Client.new(reseller_id, api_key, true)
+## 凭据与环境
 
-result = dna.get_details('example.com')
-if result['result'] == 'OK'
-  puts result['data']['Dates']['Expiration']
-else
-  puts "#{result['error']['Code']}: #{result['error']['Message']}"
+你需要从经销商面板（**API settings**）获取两个 API 凭据。面板的登录信息无法使用。
+
+| 凭据        | 形式                                   |
+|-------------|----------------------------------------|
+| Reseller ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| API key     | 一长串密钥字符串                       |
+
+共有两个环境。**请先从 OTE 开始**，即测试环境：它有独立的数据和独立的 API key，
+在其中的任何操作都不会产生费用，也不会影响线上域名。
+
+```ruby
+# 测试环境 (OTE)
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: ote_api_key, environment: :ote)
+
+# 生产环境（默认）：真实注册，真实扣费
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
+```
+
+`environment:` 也接受各类面板中存储的字符串：`'production'`、`'ote'`、`'test'`，以及测试模式标志
+（`'true'`、`'1'`、`true`）。`Client.from_env` 读取与 `dna` CLI 相同的变量：
+
+| 变量              | 含义                                                          |
+|-------------------|---------------------------------------------------------------|
+| `DNA_RESELLER_ID` | 经销商 ID                                                     |
+| `DNA_API_KEY`     | 所选环境的 API key                                            |
+| `DNA_ENV`         | `production`（默认）或 `ote`                                  |
+| `DNA_TEST_MODE`   | `true` 选择 OTE（与其他 DomainNameAPI SDK 一致）              |
+| `DNA_BASE_URL`    | 自定义基础 URL，例如代理                                      |
+
+```ruby
+client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
+```
+
+密钥或环境错误时，第一次请求就会失败，抛出 `auth?` 为 true 的 `APIError`，其 `hint` 会说明需要检查什么；
+`client.account.get` 是最省事的尝试方式。
+
+## 服务
+
+| 服务               | CLI 分组      | 操作                                                                                                                                                              |
+|--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
+| `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
+| `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
+| `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
+| `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
+| `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
+
+必需的输入以位置参数传入（`info('example.com')`），其余均为关键字参数
+（`renew('example.com', years: 1)`）。带有许多可选输入的操作接受关键字参数或请求对象：
+`register(domain_name: ..., years: 1, ...)` 与 `register(DomainNameApi::DomainRegisterRequest.new(...))`
+等价。`ssl.purchase` 即 CLI 的 `dna ssl initialize`（`initialize` 在 Ruby 中是保留名）。
+
+## 用法
+
+以下所有代码片段均假定已有一个 `client`。
+
+### 搜索
+
+```ruby
+a = client.domains.search('example.com')
+a.available?            # a.price, a.currency, a.premium?, a.document_required?, a.reason
+
+client.domains.bulk_search('example.com', 'example.net', 'example.org').each do |r|
+  puts "#{r.domain_name} #{r.status} #{r.price}"
 end
 ```
 
-方法名是 php-dna 方法名的 snake_case 形式（`getDetails` → `get_details`，`registerWithContactInfo` → `register_with_contact_info`），参数顺序和默认值保持不变。返回结果是使用 **String 键**的普通 Ruby Hash 和 Array，结构与 php-dna 返回的完全一致（包括 `'LockStatus' => 'true'` 这样的字符串标志，以及 `'11.9900'` 这样的格式化价格）。凭据会被去除首尾空白；测试模式标志也接受字符串：`"true"`、`"1"`、`"on"` 和 `"yes"` 表示测试模式，其他任何值都表示正式环境。
+`bulk_search` 会把超过 30 个域名的列表拆分为多个请求。价格使用账户的币种、客户端的
+`currency: 'TRY'` 选项，或 `search('example.com', currency: 'USD')` 指定的币种。
 
-## 错误处理
+### 注册
 
-方法在遇到 API 或网络问题时绝不会抛出异常。调用失败时会返回一个错误信封（error envelope）：
+使用联系人句柄（用 `contacts.create` 创建）：
 
 ```ruby
-{
-  'result' => 'ERROR',
-  'error'  => {
-    'Code'    => 'API_404',
-    'Message' => 'The domain name you requested could not be found',
-    'Details' => '...'
-  }
-}
+handle = client.contacts.create(
+  DomainNameApi::Contact.new(
+    first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com',
+    address: '1 Example Street', city: 'Istanbul', state: 'Istanbul', postal_code: '34000',
+    country: 'TR', phone_country_code: '90', phone: '5551234567'
+  )
+)
+
+result = client.domains.register(
+  domain_name: 'example.com', years: 1,
+  name_servers: %w[ns1.example.net ns2.example.net],
+  handles: handle # 一个句柄用于全部四个角色，或 { registrant: 'DNA-1', admin: 'DNA-2', tech: ..., billing: ... }
+)
+result.status           # result.domain_id, result.expiration_date
 ```
 
-- 对于网关错误，`Code` 为 `API_<HTTP 状态码>`（`API_400`、`API_401`、`API_429`、`API_500` 等）。`301`/`302` 响应表示凭据错误（`Invalid API credentials`）。
-- 当网关返回其自身的错误代码时，信封中还会以 `GatewayCode` 携带该代码（例如 `'GatewayCode' => 'Dna.DomainService:Domain:10007'`），以便您区分不同的 `API_404`。
-- 空的错误响应体会被转换为可读的消息，例如 `HTTP 429 - Too Many Requests`。当网关的消息是通用模板文本时，绝不会将原始响应体用作消息，而是改用一段注明网关代码的固定文本。
-- 字段校验错误会被展平到 `Details` 中，例如 `Admin PostalCode - 'PostalCode' is required`。
-- 网络故障一律视为错误，绝不会作为空的成功结果返回。超时的消息为 `Could not reach the DomainNameAPI service: the connection timed out. (...)`；其他传输层故障的消息为 `Curl error during request: ...`。其错误代码为采用 curl 编号的 `CURL_<n>`（`CURL_28` 超时、`CURL_6` DNS、`CURL_7` 连接被拒绝、`CURL_35`/`CURL_60` TLS、`CURL_56` 连接重置）；`API_<n>` 仅保留给 HTTP 状态码使用。
-- 如果网关对注册、转移或续费请求返回 HTTP 200 但带有 `"success": false`，这表示请求被拒绝，而不是成功：此时会返回错误信封，代码为 `REGISTER_DOMAIN`、`TRANSFER_DOMAIN` 或 `RENEW_DOMAIN`，并附带网关的消息。
-- `get_current_balance` 使用自己的信封格式：`'OperationResult' => 'FAILED'`，并带有 `ErrorCode` 和 `OperationMessage`。
-- `check_availability` 成功时返回普通列表，失败时返回错误信封。
-
-只有编程错误才会抛出异常（例如，向 `set_resource_record_set` 传入的 `contents` 不是列表时会抛出 `TypeError`）。
-
-每次调用的超时时间为 30 秒，连接超时为 10 秒。对 DNS 区域端点的调用之间至少间隔一秒，因为网关会对突发请求返回 `HTTP 429`。
-
-### 诊断
+使用内联联系人：
 
 ```ruby
-dna.get_request_data         # 上一次调用的 { 'url' => ..., 'method' => 'GET', 'payload' => {...} }
-dna.get_response_data        # 上一次解码后的响应体（或 { 'raw_response' => body }）
-dna.get_response_headers     # { 'url', 'http_code', 'headers', 'total_time' }
-dna.get_parsed_response_data # 上一次解析后的响应体，或上一次的错误 { 'Code', 'Message', 'Details' }
-dna.get_last_function        # 例如 'request:GET domains/info'
-dna.get_service_url          # https://api.domainresellerapi.com/api/v1
-dna.set_service_url('https://ote.domainresellerapi.com/api/v1')
-```
-
-## 测试模式
-
-将 `true` 作为构造函数的第三个参数传入，即可使用 OTE 测试网关（`https://ote.domainresellerapi.com/api/v1`）。正式调用发送至 `https://api.domainresellerapi.com/api/v1`。测试模式使用单独的测试凭据。
-
-## 错误报告（遥测）
-
-当 API 调用失败时，本库可以向 DomainNameAPI 自己的错误跟踪系统（Sentry）发送一份错误报告。成功调用中会随机抽取一小部分（4%，另外所有耗时超过 1 秒的调用）作为性能记录发送。这有助于 DomainNameAPI 发现并修复问题。错误报告**默认开启**。
-
-**发送的内容：**
-
-- 错误代码和消息
-- 所调用端点的路径和 HTTP 方法
-- 调用耗时
-- 库名称（`DomainNameAPI-Ruby`）、库版本和 Ruby 版本
-- 经销商 ID（Reseller ID）和域名
-- 服务器的公网 IP 地址（在后台通过 `api.ipify.org` 获取）
-- 运行该进程的操作系统用户名
-- API 请求和响应，包括域名的联系人信息；仅凭据会被屏蔽——EPP/授权码、API 密钥、密码和令牌会被替换为 `***`
-
-**绝不发送的内容：** 可读形式的 EPP/授权码、API 密钥、密码或令牌；堆栈跟踪中的方法调用参数。
-
-预期内的高频错误（域名未找到、余额不足、凭据无效等）不会被报告。报告由后台线程以较短的超时时间发送：它们绝不会拖慢或中断您的调用。
-
-**用途与保留期限：** 这些数据仅用于使用情况统计和问题的早期诊断，在 DomainNameAPI 自己的 Sentry 服务器上保存 30 天，之后自动删除。
-
-**如何关闭：**
-
-```ruby
-dna = DomainNameApi::Client.new(reseller_id, api_key)
-dna.set_error_reporting_enabled(false)
-```
-
-**精简模式**仅发送错误代码和消息、端点、耗时、版本信息以及 Reseller ID——不包含请求/响应数据、域名、服务器 IP 或用户名：
-
-```ruby
-dna.set_telemetry_minimal(true)
-```
-
-> 🔒 **安全：** TLS 证书验证默认开启。在 CA 证书包过旧的服务器上，可以通过 `dna.set_ssl_verification(false)` 关闭——不建议这样做；更新 CA 证书包才是更好的解决办法。
-
-## 使用方法
-
-以下所有示例均假定 `dna = DomainNameApi::Client.new(reseller_id, api_key)`。每个方法的可运行脚本都位于 [examples](examples) 中。
-
-### 账户
-
-#### 经销商详细信息
-
-```ruby
-dna.get_reseller_details
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'result'   => 'OK',
-  'id'       => 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-  'active'   => true,
-  'name'     => 'example-reseller',
-  'balance'  => '601.64',
-  'currency' => 'USD',
-  'symbol'   => '$',
-  'balances' => [
-    { 'balance' => '601.64',  'currency' => 'USD', 'symbol' => '$' },
-    { 'balance' => '1250.50', 'currency' => 'TL',  'symbol' => 'TL' }
-  ]
-}
-```
-
-</details>
-
-#### 当前余额
-
-`get_current_balance(currency = 'USD')` — 账户报告 `'USD'` 和 `'TRY'` 余额。对于其他任何货币（`'EUR'`、`'GBP'` 等），调用会失败并返回 `'ErrorCode' => 'BALANCE'`，而不是返回 `0.00`。
-
-```ruby
-dna.get_current_balance('USD')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'ErrorCode'        => 0,
-  'OperationMessage' => 'Command completed succesfully.',
-  'OperationResult'  => 'SUCCESS',
-  'Balance'          => '601.64',
-  'CurrencyId'       => 2,
-  'CurrencyInfo'     => nil,
-  'CurrencyName'     => 'USD',
-  'CurrencySymbol'   => '$'
-}
-# get_current_balance('EUR')
-{
-  'ErrorCode'        => 'BALANCE',
-  'OperationMessage' => 'No EUR balance is reported for this account. Available: USD, TRY.',
-  'OperationResult'  => 'FAILED',
-  'Balance'          => '0.00',
-  'CurrencyId'       => 3,
-  'CurrencyInfo'     => nil,
-  'CurrencyName'     => 'EUR',
-  'CurrencySymbol'   => '€'
-}
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### 查询与列表
-
-#### 域名可用性检查
-
-`check_availability(domains, extensions, period, command = 'create')` — 结果中的 `DomainName` 是不带末尾 `.tld` 的名称。
-
-```ruby
-dna.check_availability(['hello', 'world123x0'], ['com', 'net'], 1, 'create')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-[
-  { 'TLD' => 'com', 'DomainName' => 'hello', 'Status' => 'notavailable', 'Command' => 'create',
-    'Period' => 1, 'IsFee' => false, 'Price' => '10.8100', 'Currency' => 'USD', 'Reason' => 'Domain exists' },
-  { 'TLD' => 'com', 'DomainName' => 'world123x0', 'Status' => 'available', 'Command' => 'create',
-    'Period' => 1, 'IsFee' => false, 'Price' => '10.8100', 'Currency' => 'USD', 'Reason' => nil }
-]
-```
-
-</details>
-
-#### 域名列表
-
-`get_list(extra_parameters = {})` — 支持 `PageNumber`（从 0 开始）、`PageSize`、`OrderColumn`、`OrderDirection` 以及网关自身的过滤条件（例如 `DomainName`）。
-
-```ruby
-dna.get_list('OrderColumn' => 'Id', 'OrderDirection' => 'ASC', 'PageNumber' => 0, 'PageSize' => 1000)
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'data' => {
-    'Domains' => [
-      {
-        'ID' => 564346, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => '',
-        'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'false',
-        'Contacts' => { 'Billing' => { 'ID' => '' }, 'Technical' => { 'ID' => '' },
-                        'Administrative' => { 'ID' => '' }, 'Registrant' => { 'ID' => '' } },
-        'Dates' => { 'Start' => '2024-03-15T10:00:00', 'Expiration' => '2027-03-15T10:00:00', 'RemainingDays' => 126 },
-        'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-        'Additional' => {},
-        'ChildNameServers' => []
-      }
-    ]
-  },
-  'result'     => 'OK',
-  'TotalCount' => 1
-}
-```
-
-</details>
-
-#### TLD 列表
-
-`get_tld_list(count = 20)`
-
-```ruby
-dna.get_tld_list(100)
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'data' => [
-    {
-      'id' => 1, 'status' => 'Active', 'maxchar' => 63, 'maxperiod' => 10, 'minchar' => 1, 'minperiod' => 1,
-      'tld' => 'com',
-      'pricing' => {
-        'registration' => { '1' => '10.8100' },
-        'renew'        => { '1' => '11.0100' },
-        'transfer'     => { '1' => '10.6100' },
-        'restore'      => { '1' => '99.9000' }
-      },
-      'currencies' => { 'registration' => 'USD', 'renew' => 'USD', 'transfer' => 'USD', 'restore' => 'USD' }
-    }
-  ],
-  'result' => 'OK'
-}
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### 域名
-
-#### 域名注册
-
-`register_with_contact_info(domain, period, contacts, name_servers = [], epp_lock = true, privacy_lock = false, additional_attributes = {})`
-
-联系人使用 php-dna 的键名。下面的扁平结构以及 `get_contacts` 返回的嵌套结构（`Address => { Line1, City, ... }`、`Phone => { Phone => { Number, CountryCode } }`）均可接受；缺失的字段会被自动补全，姓名、电话和国家也会被规范化（参见 `validate_contact`）。如果未提供名称服务器，则使用 `ns1.domainnameapi.com` 和 `ns2.domainnameapi.com`。
-
-```ruby
-contact = {
-  'FirstName'        => 'John',
-  'LastName'         => 'Doe',
-  'Company'          => 'Example Corp',
-  'EMail'            => 'john.doe@example.com',
-  'AddressLine1'     => '123 Lorem Street',
-  'AddressLine2'     => 'Suite 456',
-  'AddressLine3'     => '',
-  'City'             => 'Springfield',
-  'Country'          => 'US',
-  'Fax'              => '1234567890',
-  'FaxCountryCode'   => '1',
-  'Phone'            => '9876543210',
-  'PhoneCountryCode' => 1,
-  'Type'             => 'Contact',
-  'ZipCode'          => '12345',
-  'State'            => 'IL'
-}
-
-dna.register_with_contact_info(
-  'example.com',
-  1,
-  { 'Administrative' => contact, 'Billing' => contact, 'Technical' => contact, 'Registrant' => contact },
-  ['ns1.example.com', 'ns2.example.com'],
-  true,
-  false
+client.domains.register_with_contacts(
+  domain_name: 'example.com',
+  name_servers: %w[ns1.example.net ns2.example.net],
+  contacts: owner # 一个 Contact 用于全部四个角色，或 { registrant: owner, admin: admin, tech: admin, billing: admin }
 )
 ```
 
-对于 `.tr` 域名，请将 TRABIS 属性作为第 7 个参数传入：
+联系人可以是 `DomainNameApi::Contact` 对象，也可以是包含相同字段的 Hash。联系人信息在发送前会先整理：
+字段会去除首尾空白，国家代码转为大写，电话字段只保留数字
+（`'+90 (555) 123-45-67'` 可以直接使用）。部分 TLD 需要注册局属性：用
+`client.products.tld('com.tr').required_attributes` 查找，并通过 `tld_attributes:` 传入。
+
+如果 API 有响应但拒绝了请求（`"success": false`），该方法会抛出 `DomainNameApi::OperationError`，
+其中带有 API 的消息。
+
+### 续费、转入、恢复
 
 ```ruby
-# 个人所有者
-{ 'TRABISDOMAINCATEGORY' => 1, 'TRABISCITIZIENID' => '12345678901' }
-# 公司所有者
-{ 'TRABISDOMAINCATEGORY' => 0, 'TRABISTAXOFFICE' => 'Istanbul VD', 'TRABISTAXNUMBER' => '1234567890' }
+check = client.domains.renew_check('example.com', years: 1)   # check.renewable?, check.premium_price
+client.domains.renew('example.com', years: 1)
+
+tc = client.domains.transfer_check('example.com', 'auth-code') # tc.transferable?, tc.auth_code_valid?
+client.domains.transfer('example.com', auth_code: 'auth-code')
+client.domains.transfer_status('example.com').status
+
+client.domains.restore('example.com') # 在赎回期内
 ```
 
-类别会以 `Owner`/`Corporate` 的形式发送，`TRABISCITIZIENID` 会以 `TRABISCITIZENID` 的形式发送，而旧版键（`TRABISNAMESURNAME`、`TRABISCOUNTRYID`、`TRABISCITYID` 等）会被丢弃，因为网关现在会从联系人信息中读取这些数据。
-
-<details>
-<summary>示例输出</summary>
+### 域名详情与域名列表
 
 ```ruby
-{
-  'data' => {
-    'ID' => 123456, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => 'Xy9#mK2$pL5@vN8',
-    'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'false',
-    'Contacts' => { 'Billing' => { 'ID' => 987654 }, 'Technical' => { 'ID' => 987654 },
-                    'Administrative' => { 'ID' => 987654 }, 'Registrant' => { 'ID' => 987654 } },
-    'Dates' => { 'Start' => '2024-03-15T10:00:00', 'Expiration' => '2025-03-15T10:00:00', 'RemainingDays' => 365 },
-    'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-    'Additional' => {},
-    'ChildNameServers' => []
-  },
-  'result' => 'OK'
-}
+d = client.domains.info('example.com')
+d.status                # => #<DomainNameApi::DomainStatus Active (0)>
+d.expiration_date       # => 2027-03-15 10:20:30 UTC
+d.remaining_days, d.locked?, d.privacy_protection?, d.name_servers, d.auth_code, d.hosts
+d.contact(:registrant)&.email
+
+# 单页
+page = client.domains.list(limit: 50, sort: 'expirationDate')
+page.total_count
+page.each { |domain| puts domain.domain_name }
+
+# 所有域名；在遍历过程中按需获取分页
+client.domains.all(statuses: [:active]) do |domain|
+  puts "#{domain.domain_name} #{domain.expiration_date}"
+end
+client.domains.all.first(10) # 不带块时返回 Enumerator：只获取一页
 ```
 
-</details>
-
-#### 域名续费
+### 锁定、隐私保护、域名服务器、子域名服务器
 
 ```ruby
-dna.renew('example.com', 1)
+client.domains.lock('example.com')
+client.domains.unlock('example.com')
+client.domains.set_privacy('example.com', true)
+code = client.domains.update_auth_code('example.com')
+
+client.domains.set_name_servers('example.com', %w[ns1.example.net ns2.example.net])
+client.domains.set_name_servers('example.com', %w[ns1.other.net ns2.other.net], dnssec_mode: :disable) # 适用于已启用 DNSSEC 签名的域名
+
+client.domains.add_host('example.com', 'ns1.example.com', '192.0.2.10', '2001:db8::10') # 自动识别 IP 版本
+client.domains.update_host('example.com', 'ns1.example.com', ip_addresses: ['192.0.2.20'])
+client.domains.delete_host('example.com', 'ns1.example.com')
 ```
 
-<details>
-<summary>示例输出</summary>
+### 域名的联系人
 
 ```ruby
-{ 'result' => 'OK', 'data' => { 'ExpirationDate' => '2025-03-15T10:00:00' } }
+client.domains.set_contact_handles('example.com', admin: 'DNA-2', tech: 'DNA-2') # 其他角色保持不变
+client.domains.update_contacts('example.com', billing: billing_contact)
+
+details = client.contacts.get('DNA-1')               # 联系人及其验证状态
+result = client.contacts.update('DNA-1', contact)    # 更新所有使用该句柄的域名
+result.affected_domains.each { |a| puts "#{a.domain_name} #{a.new_handle}" }
+client.contacts.resend_verification('DNA-1')          # 没有需要验证的内容时返回 false
 ```
-
-</details>
-
-#### 域名详细信息
-
-```ruby
-dna.get_details('example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'data' => {
-    'ID' => 564346, 'Status' => 'Active', 'DomainName' => 'example.com', 'AuthCode' => 'DHQ!K52',
-    'LockStatus' => 'true', 'PrivacyProtectionStatus' => 'false', 'IsChildNameServer' => 'true',
-    'Contacts' => { 'Billing' => { 'ID' => 'DNA-B-4' }, 'Technical' => { 'ID' => 'DNA-T-3' },
-                    'Administrative' => { 'ID' => 'DNA-A-2' }, 'Registrant' => { 'ID' => 'DNA-R-1' } },
-    'Dates' => { 'Start' => '2025-05-26T16:08:37', 'Expiration' => '2027-05-26T16:08:37', 'RemainingDays' => 449 },
-    'NameServers' => ['ns1.example.com', 'ns2.example.com'],
-    'Additional' => {},
-    'ChildNameServers' => [{ 'ns' => 'ns1.example.com', 'ip' => '1.2.3.4' }]
-  },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### 从注册局同步
-
-调用方式和输出与 `get_details` 相同。
-
-```ruby
-dna.sync_from_registry('example.com')
-```
-
-#### 修改名称服务器
-
-可传入列表或 Hash（使用其中的值）。名称会被去除首尾空白、转换为小写、去掉末尾的点并去重；返回结果中报告的是规范化后的列表。
-
-```ruby
-dna.modify_name_server('example.com', ['ns1.example.com', 'ns2.example.com'])
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServers' => ['ns1.example.com', 'ns2.example.com'] } }
-```
-
-</details>
-
-#### 启用域名锁定
-
-```ruby
-dna.enable_theft_protection_lock('example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'LockStatus' => true } }
-```
-
-</details>
-
-#### 禁用域名锁定
-
-```ruby
-dna.disable_theft_protection_lock('example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'LockStatus' => false } }
-```
-
-</details>
-
-#### 修改域名隐私保护
-
-`modify_privacy_protection_status(domain, status, reason = 'Owner request')` — `status` 可以是 `true`/`false`，也可以是面板风格的值：`1`、`'1'`、`'true'`、`'on'` 和 `'yes'` 表示开启隐私保护，其他任何值都表示关闭。返回结果中报告的是解析后的布尔值。`reason` 参数仅为兼容而保留，并不会发送：网关没有此字段。
-
-```ruby
-dna.modify_privacy_protection_status('example.com', true, 'Owner request')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'data' => { 'PrivacyProtectionStatus' => true }, 'result' => 'OK' }
-```
-
-</details>
-
-#### 获取域名联系人
-
-联系人类型按不区分大小写的方式匹配（`admin`/`administrative`、`tech`/`technical`、`registrant`/`owner`、`billing`）；注册局返回的其他类型会保留在这四种标准类型之后。
-
-```ruby
-dna.get_contacts('example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'data' => {
-    'contacts' => {
-      'Administrative' => {
-        'ID' => 'DNA-A-2', 'Status' => 'Active', 'AuthCode' => '',
-        'FirstName' => 'Grace', 'LastName' => 'Hopper', 'Company' => '', 'EMail' => 'grace@example.com',
-        'Type' => 'Administrative',
-        'Address' => { 'Line1' => 'Example Street 2', 'Line2' => '', 'Line3' => '', 'State' => 'DC',
-                       'City' => 'Washington', 'Country' => 'US', 'ZipCode' => '20001' },
-        'Phone' => { 'Phone' => { 'Number' => '2025550100', 'CountryCode' => '1' },
-                     'Fax'   => { 'Number' => '2025550101', 'CountryCode' => '1' } },
-        'Additional' => {}
-      },
-      'Billing' => { ... }, 'Registrant' => { ... }, 'Technical' => { ... }
-      # 注册局返回的其他任何联系人类型会排在这四种之后
-    }
-  },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### 保存域名联系人
-
-```ruby
-dna.save_contacts('example.com', {
-  'Administrative' => contact,
-  'Billing'        => contact,
-  'Technical'      => contact,
-  'Registrant'     => contact
-})
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'contacts' => {} } }
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### 子名称服务器
-
-#### 添加子名称服务器
-
-```ruby
-dna.add_child_name_server('example.com', 'ns1.example.com', '1.2.3.4')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com', 'IPAdresses' => ['1.2.3.4'] } }
-```
-
-</details>
-
-#### 删除子名称服务器
-
-```ruby
-dna.delete_child_name_server('example.com', 'ns1.example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com' } }
-```
-
-</details>
-
-#### 更新子名称服务器
-
-```ruby
-dna.modify_child_name_server('example.com', 'ns1.example.com', '1.2.3.5')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'NameServer' => 'ns1.example.com', 'IPAdresses' => ['1.2.3.5'] } }
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### 转移
-
-#### 域名转移
-
-`transfer(domain, epp_code, period)` — 转移请求从不发送联系人信息：联系人由注册商处理，因此请求中始终携带空的联系人列表，该方法也不接受联系人参数。转移完成后，请使用 `save_contacts` 更新联系人。
-
-```ruby
-dna.transfer('example.com', 'Xy9#mK2$', 3)
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'data' => { 'ID' => 0, 'Status' => 'WaitingForIncomingTransfer', 'DomainName' => 'example.com', ... },
-  'result' => 'OK'
-}
-```
-
-</details>
-
-#### 检查转移
-
-仅当注册局报告该域名可转移时，`result` 才为 `'OK'`。
-
-```ruby
-dna.check_transfer('example.com', 'Xy9#mK2$')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{
-  'result' => 'OK',
-  'data' => {
-    'TransferAvailabilityStatus' => true, 'AuthCodeIsRequired' => true, 'AuthCodeIsValid' => true,
-    'UserTransferRequired' => false, 'TransferLock' => false, 'Message' => '', 'MessageKey' => '',
-    'Additional' => {}
-  }
-}
-```
-
-</details>
-
-#### 取消、批准或拒绝转移
-
-`cancel_transfer` 用于取消待处理的转入请求；`approve_transfer` 和 `reject_transfer` 用于答复待处理的转出请求。
-
-```ruby
-dna.cancel_transfer('example.com')
-dna.approve_transfer('example.com')
-dna.reject_transfer('example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Status' => 'Cancelled' } } # 'Approved' / 'Rejected'
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
 
 ### DNS 区域
 
-支持的记录类型：`A`、`AAAA`、`ALIAS`、`CAA`、`CNAME`、`DS`、`MX`、`NAPTR`、`PTR`、`SRV`、`TLSA`、`TXT`（其他类型会在发出任何调用之前被拒绝）。名称使用相对形式（`'www'`）；`''` 或 `'@'` 表示区域顶点（apex），而 `'www.example.com'` 这样的完整名称会被缩减为其标签部分。更改会立即生效；如需暂存多项更改，请传入 `apply = false`，最后调用一次 `apply_resource_records`。TTL 范围为 1–86400 秒。
-
-如果自动应用（apply）失败，方法会返回该应用错误（更改仍处于暂存状态，尚未生效），而不是 `OK`。返回结果中报告的是实际发送的大写类型和 TTL。
-
-网关将“名称 + 类型”作为一个**集合（set）**存储：写入一个集合会替换其中的所有值，而删除其中一个值会删除整个集合。`*_resource_record_value` 系列方法会替您完成“读取-合并-写入”的过程。
-
-#### 列出记录
-
 ```ruby
-dna.get_resource_records('example.com')
+client.dns.add('example.com', name: 'www', type: :a, values: '192.0.2.10', ttl: 600)
+client.dns.update('example.com', record_name: 'www', type: :a, values: %w[192.0.2.20 192.0.2.21]) # 替换该记录集的所有值
+client.dns.delete('example.com', name: 'www', type: :a, value: '192.0.2.20')
+
+client.dns.list('example.com').each do |set|
+  puts "#{set.name} #{set.type} #{set.ttl} #{set.values.join(', ')}"
+end
+
+client.dns.apply('example.com') # 将域名切换到平台的域名服务器
 ```
 
-<details>
-<summary>示例输出</summary>
+名称可以是相对名称（`'www'`）、根域（`''` 或 `'@'`）或完全限定名称。记录类型可以是任意大小写的符号或字符串
+（`:txt` 和 `'txt'` 都会作为 `TXT` 发送）。校验会拦截 API 会拒绝的内容：根域上的
+CNAME、不足三个部分的 CAA 值、缺少优先级的 MX 值、带有 IPv6 地址的 A 记录。测试
+环境对每个区域调用都返回 HTTP 500，因此区域相关代码只能在生产环境中试用。
+
+### DNSSEC
 
 ```ruby
-{
-  'result' => 'OK',
-  'data' => {
-    'records' => [
-      { 'Name' => 'example.com.', 'Type' => 'MX', 'TTL' => 3600, 'Content' => '10 mail.example.com.', 'Disabled' => false },
-      { 'Name' => 'www.example.com.', 'Type' => 'A', 'TTL' => 3600, 'Content' => '192.0.2.10', 'Disabled' => false }
-    ]
-  }
-}
+results = client.dnssec.add('example.com', '2371 13 2 1F987CC6583E92DF0890718C42...') # 与你的 DNS 提供商显示的格式一致
+info = client.dnssec.get('example.com') # info.status.signed?, info.ds_records
+client.dnssec.disable('example.com')
 ```
 
-</details>
-
-#### 替换记录集合
-
-`set_resource_record_set(domain, name, type, contents, ttl = 3600, apply = true)` — 传入空列表会删除该集合。
-
-```ruby
-dna.set_resource_record_set('example.com', 'www', 'A', ['192.0.2.10', '192.0.2.11'], 3600)
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www', 'Type' => 'A', 'TTL' => 3600, 'Contents' => ['192.0.2.10', '192.0.2.11'] } }
-```
-
-</details>
-
-#### 添加、替换或删除单个值
-
-`add_resource_record_value(domain, name, type, value, ttl = nil, apply = true)`、`replace_resource_record_value(domain, name, type, old_value, new_value, ttl = nil, apply = true)`、`remove_resource_record_value(domain, name, type, value, apply = true)`。TTL 为 `nil` 时保留该集合当前的 TTL；添加一个已存在的值或删除一个不存在的值不会执行任何操作（`'Changed' => false`）。
-
-```ruby
-dna.add_resource_record_value('example.com', '', 'MX', '10 mail.example.com.')
-dna.replace_resource_record_value('example.com', '', 'MX', '10 mail.example.com.', '20 mail.example.com.')
-dna.remove_resource_record_value('example.com', '', 'MX', '20 mail.example.com.')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => '', 'Type' => 'MX', 'TTL' => 3600, 'Contents' => ['10 mail.example.com.'] } }
-# 值已存在：
-{ 'result' => 'OK', 'data' => { 'Name' => '', 'Type' => 'MX', 'Contents' => ['10 mail.example.com.'], 'Changed' => false } }
-```
-
-</details>
-
-#### 删除记录集合
-
-`delete_resource_record_set(domain, name, type, apply = true, known_value = '')` — 删除该集合中的所有值；如果没有可删除的内容，则返回成功并带有 `'Removed' => false`。
-
-```ruby
-dna.delete_resource_record_set('example.com', 'www', 'A')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www.example.com.', 'Type' => 'A', 'Content' => '192.0.2.10' } }
-```
-
-</details>
-
-#### 底层记录调用
-
-```ruby
-dna.add_resource_record('example.com', 'www', 'A', '192.0.2.10', 3600, true)
-dna.edit_resource_record('example.com', 'www', 'www', 'A', '192.0.2.20', 3600, true)
-dna.delete_resource_record('example.com', 'www.example.com.', '192.0.2.20', 'A', true)
-dna.apply_resource_records('example.com')
-```
-
-<details>
-<summary>示例输出</summary>
-
-```ruby
-{ 'result' => 'OK', 'data' => { 'Name' => 'www', 'Type' => 'A', 'TTL' => 3600, 'Content' => '192.0.2.10' } }   # 添加 / 编辑
-{ 'result' => 'OK', 'data' => { 'Name' => 'www.example.com.', 'Type' => 'A', 'Content' => '192.0.2.20' } }    # 删除
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com' } }                                              # 应用
-```
-
-</details>
-
-<hr style="border: 4px solid #000; border-style: dashed;">
+`DomainNameApi::DS.parse` 可读取展示格式（presentation format）以及完整的区域文件行；也可以使用 `DS.new(key_tag: ...,
+algorithm: :ecdsa_p256_sha256, digest_type: :sha256, digest: '...')`。
 
 ### URL 转发
 
-转发类型：`'Standard'`（普通重定向）和 `'Frame'`（隐藏/框架转发）。未配置任何转发时，网关会返回 `Redirect information not found`：此时 `get_forwarding` 报告 `'Enabled' => false`，`delete_forwarding` 则成功返回并带有 `'Removed' => false`。其他任何错误（例如未知域名）都会作为错误返回。
-
 ```ruby
-dna.set_forwarding('example.com', 'https://www.example.org', 'Standard')
-dna.get_forwarding('example.com')
-dna.delete_forwarding('example.com')
+client.domains.set_forwarding('example.com', 'https://www.example.org')              # 301 重定向
+client.domains.set_forwarding('example.com', 'https://www.example.org', type: :frame) # 隐藏式转发（masked）
+f = client.domains.forwarding('example.com') # 域名没有转发时为 nil
+client.domains.delete_forwarding('example.com')
 ```
 
-<details>
-<summary>示例输出</summary>
+### 注册局文档 (.tr)
 
 ```ruby
-# set_forwarding
-{ 'result' => 'OK', 'data' => { 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# get_forwarding（未配置转发时返回 Enabled => false，而不是错误）
-{ 'result' => 'OK', 'data' => { 'Enabled' => true, 'RedirectAddress' => 'https://www.example.org', 'ForwardType' => 'Standard' } }
-# delete_forwarding（未配置转发时 Removed => false）
-{ 'result' => 'OK', 'data' => { 'DomainName' => 'example.com', 'Removed' => true } }
+doc = DomainNameApi::DocumentUpload.from_file(:identity_card, 'id.pdf')
+client.domains.upload_documents('example.com.tr', doc)
+client.domains.documents('example.com.tr').each { |d| puts "#{d.name} #{d.status}" }
 ```
 
-</details>
+文件会自动进行 base64 编码；上传前会检查格式（PDF、JPG、PNG、DOC、DOCX、ODT）和大小（每个文件 10 MB，每次
+请求 50 MB）。
 
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### 实用工具（无网络请求）
-
-#### 是否为 .tr 域名？
+### SSL 证书
 
 ```ruby
-dna.is_tr_tld('example.com.tr') # => true
-dna.is_tr_tld('example.com')    # => false
+csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
+                              organization: 'Example Ltd', organization_unit: 'IT')
+client.ssl.purchase('example.com', package_code: 'PositiveSSL') # 从余额中扣费（CLI：dna ssl initialize）
+client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+client.ssl.status('example.com').issued? # 轮询直到返回 true
+File.write('example.com.crt', client.ssl.content('example.com').chain)
 ```
 
-#### 校验联系人
-
-按照注册时相同的方式补全并规范化联系人信息：去除姓名中的数字和标点符号，缺失的州/省会以城市填充，国家名称会转换为 ISO 代码，电话号码会被拆分为号码和国家代码。如果号码本身带有以 `+` 或 `00` 开头的国际区号，即使另外提供了 `PhoneCountryCode`，也会保留号码自带的区号（`'+1 202 555 0100'` → `'2025550100'` / `'1'`）。
+### 主机托管
 
 ```ruby
-dna.validate_contact('FirstName' => 'J0hn', 'Phone' => '+90 532 374 33 88', 'Country' => 'Turkey')
+client.hosting.packages.each { |p| puts p.service_plans.map(&:service_plan) }
+created = client.hosting.create('example.com', service_plan: 'Linux-Starter') # 从余额中扣费
+
+st = client.hosting.wait(created.service_id, timeout: 30 * 60) # 轮询直到激活
+puts st.panel_address, st.username, st.password
 ```
 
-<details>
-<summary>示例输出</summary>
+对于仍在开通中的主机托管，切勿再次调用 `create`：这会重复扣费。
+
+### 余额、价格与订单
 
 ```ruby
-{
-  'FirstName' => 'Jhn', 'Phone' => '5323743388', 'Country' => 'TR', 'LastName' => 'Isimyok',
-  'AddressLine1' => 'Addres yok', 'City' => 'ISTANBUL', 'State' => 'ISTANBUL', 'ZipCode' => '34000',
-  'PhoneCountryCode' => '90', 'Fax' => '', 'FaxCountryCode' => ''
-}
+account = client.account.get
+account.balance('USD')
+
+client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
+  puts "#{tx.creation_time} #{tx.type} #{tx.change}"
+end
+
+tld = client.products.tld('com.tr')
+tld&.register_price(1)&.to_s   # => "12.50 USD"
+
+client.products.info('com', order_type: :renew, years: 2) # .com 续费 2 年的价格
+client.orders.get('ORDER-CODE')
 ```
 
-</details>
+## 结果、模型与枚举
 
-<hr style="border: 4px solid #000; border-style: dashed;">
-
-### 设置
-
-| 方法 | 作用 |
-|---|---|
-| `set_error_reporting_enabled(false)` | 关闭遥测 |
-| `set_telemetry_minimal(true)` | 发送精简的遥测数据 |
-| `set_ssl_verification(false)` | 跳过 TLS 证书验证（不推荐） |
-| `set_service_url(url)` | 使用其他网关 URL |
-| `set_transport(callable)` | 替换 HTTP 传输层（见下文） |
-
-HTTP 传输层可以是任何响应 `call(request)` 的对象，其中 `request` 是一个包含 `:method`、`:url`、`:headers`、`:body`、`:timeout`、`:connect_timeout` 和 `:verify_ssl` 的 Hash，并返回一个 `DomainNameApi::Response`（或包含 `:status`、`:body`、`:headers` 的 Hash）。默认实现为 `DomainNameApi::NetHttpTransport`（Net::HTTP）。测试正是借此在无网络的情况下运行的：
+每个结果都是一个 `DomainNameApi::Model`：snake_case 形式的读取方法、用于标志的 `?` 谓词方法、表示日期的 `Time` 对象，
+以及嵌套的模型和列表。
 
 ```ruby
-fake = ->(request) { DomainNameApi::Response.new(status: 200, body: '{"resellerId":"abc"}', headers: {}) }
-dna = DomainNameApi::Client.new(reseller_id, api_key, false, transport: fake)
+d = client.domains.info('example.com')
+d.locked?                 # 也可用 d.locked
+d.hosts.first.ip_addresses.first.address
+d.to_h                    # 键为 snake_case 的普通 Hash
+d.raw                     # API 发送的原始 JSON 对象，用于本 gem 未建模的字段
 ```
 
-<hr style="border: 4px solid #000; border-style: dashed;">
+数值和固定字符串类型的值都是枚举（`DomainStatus`、`RecordType`、`ContactType`、`DocumentType` 等）：
 
-## 测试
+```ruby
+d.status.pending_delete?                       # 每个成员对应一个谓词方法
+d.status == DomainNameApi::DomainStatus::ACTIVE
+d.status == :active                            # 也可以与符号、名称和数字比较
+d.status.to_s                                  # => "Active"
+d.status.to_i                                  # => 0
+DomainNameApi::DomainStatus.members            # 全部成员
+```
 
-测试套件仅使用 Minitest，且从不访问网络：
+请求可接受枚举、符号、任意大小写的名称或数字：`statuses: [:active, 'PendingDelete', 7]`。
+
+解码是宽容的：不带时区的日期、`null`、用 `[]` 代替 `{}`、以字符串形式发送的数字、任意大小写的
+角色（`"registrant"`、`"ADMINISTRATIVE"`）以及本 gem 尚不认识的值，都能正常解码，而不会导致
+调用失败（对于最后一种情况，`status.known?` 为 false）。
+
+## 请求与 BaseRequest
+
+每个 API 操作都是一个请求类：`DomainInfoRequest`、`DNSAddRequest`、`SSLConfigureRequest` 等，按照
+CLI 命令命名（`dna domain renew` 对应 `DomainRenewRequest`）。它们都继承自
+`DomainNameApi::BaseRequest`，由它提供底层支撑：类级别的 `endpoint` 和 `attribute` DSL、关键字参数
+初始化、校验辅助方法、路径模板以及查询参数/请求体构建器。列表请求继承自
+`PagedRequest`，它增加了 `skip`、`limit` 和 `sort`。本 gem 中的一个请求如下所示：
+
+```ruby
+class DomainRenewRequest < BaseRequest
+  endpoint :post, '/api/v1/domains/renew', safety: :billable
+  returns DomainOperationResult
+  attribute :domain_name
+  attribute :years
+
+  def body
+    domain_body.merge(optional('period' => years))
+  end
+
+  def validate
+    required :domain_name
+    check years.to_i.between?(1, 10), :years, 'must be between 1 and 10'
+  end
+end
+```
+
+服务方法会为你构建这些请求。`client.call` 可以发送任何请求，包括你自己的类，例如
+只读取所需的字段，或调用本 gem 尚未封装的端点：
+
+```ruby
+class Expiry < DomainNameApi::Model
+  field :expiration_date, :time
+  field :remaining_days, :integer, from: 'remainingDay'
+end
+
+class ExpiryRequest < DomainNameApi::BaseRequest
+  endpoint :get, '/api/v1/domains/info', safety: :read
+  returns Expiry            # 省略则返回解析后的 JSON
+  attribute :domain_name
+
+  def query
+    params.string('DomainName', domain_name)
+  end
+
+  def validate
+    required :domain_name
+  end
+end
+
+expiry = client.call(ExpiryRequest.new(domain_name: 'example.com'))
+expiry.expiration_date
+```
+
+| 可覆盖方法     | 默认值          | 用途                                                                        |
+|----------------|-----------------|-----------------------------------------------------------------------------|
+| `query`        | `nil`           | 一个 `Query`（`params.string(...)`）、一个 Hash 或由键值对组成的 Array      |
+| `body`         | `nil`           | 使用 API 字段名的 Hash 或 Array；枚举、模型和时间会自动转换                 |
+| `validate`     | 无需检查        | 用 `required`、`check`、`between`、`max_length`、`enum` 报告问题            |
+| `decode(data)` | 使用 `returns`  | 将解析后的 JSON 转换为你的结果                                              |
+
+路径占位符会从属性中填充并进行转义：`endpoint :get, '/api/v1/contacts/{handle}'`。
+
+你的请求享有内置请求的全部能力：凭据、重试、节奏控制、错误规范化、
+关联 ID、追踪以及只读强制。`client.execute(request)` 返回完整的 `Response`
+（状态码、响应头、原始响应体、关联 ID、配额、尝试次数），解码后的结果位于 `value` 中。
+`client.prepare(request)` 会校验并构建出确切的 HTTP 请求但不发送，便于在计费请求发出之前
+记录或审查（API key 在 `inspect` 中会被遮蔽）。
+
+## 错误
+
+| 错误                             | 触发时机                                                   | 常用方法                                                                       |
+|----------------------------------|------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `DomainNameApi::InputError`      | 校验拒绝了请求；**没有发送任何内容**                       | `request`, `fields`                                                            |
+| `DomainNameApi::APIError`        | API 返回了非 2xx 状态码                                    | `status`, `code`, `api_message`, `details`, `fields`, `data`, `correlation_id`, `hint` |
+| `DomainNameApi::OperationError`  | API 返回 2xx，但带有 `"success": false`                    | `code`, `api_message`, `correlation_id`                                        |
+| `DomainNameApi::NetworkError`    | 请求未完成（DNS、TLS、超时、连接重置）                     | `original`, `timeout?`                                                         |
+| `DomainNameApi::ReadOnlyError`   | 只读客户端阻止了变更；没有发送任何内容                     | `safety`                                                                       |
+
+它们都继承自 `DomainNameApi::Error`，可回答常见问题：`kind`（`:auth`、
+`:not_found`、`:validation`、`:rejected`、`:conflict`、`:rate_limited`、`:server`、`:network`、`:invalid_input`、
+`:read_only`）、`not_found?`、`auth?`、`rate_limited?`、`insufficient_balance?`、`outcome_unknown?`、
+`retryable?` 和 `code?(code)`。
+
+```ruby
+begin
+  client.domains.renew('example.com', years: 1)
+rescue DomainNameApi::Error => e
+  if e.outcome_unknown?
+    # 续费可能已经成功。再次尝试之前先检查该域名。
+  elsif e.insufficient_balance?
+  elsif e.not_found?
+  elsif e.code?(DomainNameApi::ErrorCode::PRIVACY_NOT_SUPPORTED)
+  elsif e.is_a?(DomainNameApi::APIError)
+    logger.error("#{e.code} #{e.api_message} #{e.hint} #{e.correlation_id}")
+  end
+end
+```
+
+请根据 `code` 而不是消息来分支处理：消息是本地化的。API 错误码形如
+`Dna.DomainService:Domain:10007`；常见的错误码是 `DomainNameApi::ErrorCode` 中的常量，其余的参见
+[错误参考](https://www.domainnameapi.com/docs/reference/errors.md)。联系支持团队时请提供
+`correlation_id`。
+
+## 安全与可靠性
+
+- **安全级别。** 每个请求都属于 `:read`、`:write`、`:destructive` 或 `:billable`（`request.safety`、
+  `request.billable?`）。部分 POST 和 PUT 请求实际上是读取操作（`DomainSearchRequest`、`SSLStatusRequest`）。
+- **只读模式。** `read_only: true` 会阻止所有非读取操作，适用于报表任务，也适合
+  安全地探索生产环境。
+- **重试。** 429 响应总是会被重试，并遵循 `Retry-After`：API 在处理任何内容之前就拒绝了这类请求。
+  网络错误和 502/503/504 仅对读取操作和幂等的写入操作重试，因此注册
+  或续费绝不会被发送两次。计费请求失败后，请检查 `e.outcome_unknown?`。
+- **节奏控制。** 客户端会控制请求间隔，使其低于每个密钥的限制（每秒 5 个请求、每秒 2 次搜索、
+  每秒一次区域调用）。如果你自行控制节奏，可用 `pacing: false` 将其关闭。
+- **配额。** `client.execute(request).quota` 暴露软配额响应头。超出限制时，API 会放慢响应（最多
+  5 秒）而不是拒绝请求；默认的 60 秒超时为此留有余地。
+- **关联 ID。** 每个请求都带有 `X-Correlation-ID`。设置你自己的值，以便将 API 调用与你的日志关联起来：
+  `DomainNameApi.with_correlation_id(job.id) { ... }` 或 `client.call(request, correlation_id: job.id)`。
+- **可观测性。** `logger: Logger.new($stdout)` 会记录每次交互；`on_trace: ->(event) { ... }` 会把
+  每个请求、响应和重试以 `TraceEvent` 的形式交给你，用于指标或错误上报。其中绝不包含 API key；
+  但请求体和响应体可能含有联系人数据，因此存储前请先做脱敏处理。
+- **线程。** 客户端可以在多个线程之间安全共享。创建一个并重复使用即可。
+- **不会有其他任何数据离开你的进程。** 没有遥测，也没有第三方服务。
+
+## 客户端选项
+
+| 选项                         | 作用                                                                                |
+|------------------------------|-------------------------------------------------------------------------------------|
+| `environment: :ote`          | 使用测试环境（默认为 `:production`）                                                |
+| `base_url: 'https://...'`    | 将请求发送到代理或测试服务器                                                        |
+| `timeout: 60`                | 每次 HTTP 尝试的超时秒数                                                            |
+| `open_timeout: 10`           | 建立连接的超时秒数                                                                  |
+| `user_agent: 'app/1.0'`      | 将你的产品名放在 User-Agent 前面                                                    |
+| `currency: 'TRY'`            | 搜索价格与目录价格的币种                                                            |
+| `retries: 2`                 | 重试次数                                                                            |
+| `max_retry_wait: 30`         | 客户端最多等待的 `Retry-After` 时长                                                 |
+| `pacing: false`              | 关闭客户端节奏控制                                                                  |
+| `read_only: true`            | 阻止所有非读取请求                                                                  |
+| `logger: Logger.new($stdout)`| 记录交互：请求使用 debug 级别，重试使用 warn 级别，失败使用 error 级别              |
+| `on_trace: ->(event) {}`     | 观察每个请求、响应和重试                                                            |
+| `transport: my_transport`    | 你自己的 HTTP 层（代理、连接池等）：任何带有 `call(request)` 方法的对象             |
+
+`DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` 即带有代理或你自己的
+CA 证书包的默认传输层。绝不会跟随重定向：对于未知或已暂停的经销商 ID，API 会返回 302，
+这会被转换为认证错误。
+
+## 测试你的代码
+
+传入一个像 API 一样作出响应的传输层；其他部分都不需要 mock：
+
+```ruby
+class FakeAPI
+  def call(request)
+    DomainNameApi::HTTPResponse.new(
+      status: 200, headers: {},
+      body: '{"success":true,"info":{"domainName":"example.com","status":"AVAILABLE","price":11.99,"currency":"USD"}}'
+    )
+  end
+end
+
+client = DomainNameApi::Client.new(reseller_id: 'r', api_key: 'k', transport: FakeAPI.new, pacing: false)
+client.domains.search('example.com').available? # => true
+```
+
+`request` 是一个 `DomainNameApi::PreparedRequest`（`http_method`、`url`、`headers`、`body`），因此这个假实现
+还可以断言发送了什么内容。WebMock 和 VCR 也可以使用，因为默认传输层是 `Net::HTTP`。
+
+## 从 v1 迁移
+
+v2 是全新的设计：用类型化的结果取代以 String 为键的 Hash，用异常取代 `{'result' => 'ERROR'}`
+信封，并提供完整的 API，而不再只是 php-dna 的方法集合。gem 名称仍为 `domainnameapi`；在你切换之前，可固定
+`tag: 'v1.0.1'` 以继续使用 v1。
+
+| v1                                                   | v2                                                                       |
+|------------------------------------------------------|--------------------------------------------------------------------------|
+| `Client.new(id, key, true)`                          | `Client.new(reseller_id: id, api_key: key, environment: :ote)`           |
+| `res['result'] == 'OK'`                              | 不抛出异常                                                               |
+| `get_reseller_details`, `get_current_balance`        | `account.get` (+ `account.balance('USD')`)                               |
+| `check_availability`                                 | `domains.search`, `domains.bulk_search`                                  |
+| `get_list`                                           | `domains.list`, `domains.all`                                            |
+| `get_tld_list`                                       | `products.tlds`, `products.all_tlds`, `products.tld`                     |
+| `get_details`, `get_contacts`, `sync_from_registry`  | `domains.info`                                                           |
+| `register_with_contact_info`                         | `domains.register_with_contacts`（或 `contacts.create` + `domains.register`） |
+| `renew`, `transfer`, `check_transfer`                | `domains.renew`, `domains.transfer`, `domains.transfer_check`            |
+| `modify_name_server`                                 | `domains.set_name_servers`                                               |
+| `enable_theft_protection_lock` / `disable_...`       | `domains.lock` / `domains.unlock`                                        |
+| `modify_privacy_protection_status`                   | `domains.set_privacy`                                                    |
+| `save_contacts`                                      | `domains.update_contacts`, `domains.set_contact_handles`                 |
+| `add_child_name_server`, `modify_child_name_server`, `delete_child_name_server` | `domains.add_host`, `domains.update_host`, `domains.delete_host` |
+| `get_resource_records`                               | `dns.list`                                                               |
+| `add_resource_record`, `add_resource_record_value`   | `dns.add`                                                                |
+| `edit_resource_record`, `set_resource_record_set`, `replace_resource_record_value` | `dns.update`                               |
+| `delete_resource_record`, `remove_resource_record_value`, `delete_resource_record_set` | `dns.delete`（每个值调用一次）         |
+| `apply_resource_records`                             | `dns.apply`                                                              |
+| `get_forwarding`, `set_forwarding`, `delete_forwarding` | `domains.forwarding`, `domains.set_forwarding`, `domains.delete_forwarding` |
+| `cancel_transfer`, `approve_transfer`, `reject_transfer` | 不在已发布的 API 中；如果你的账户支持这些操作，请发送[你自己的请求](#请求与-baserequest) |
+| `is_tr_tld`, `validate_contact`                      | `name.end_with?('.tr')`；每个请求都会执行校验                            |
+| `get_request_data`, `get_response_data`, ...         | `on_trace:`, `logger:`, `client.execute(request)`                        |
+| 遥测 (`set_error_reporting_enabled`, Sentry)         | 已移除：不会有任何数据离开你的进程；请将 `on_trace` 事件转发到你自己的上报系统 |
+| `set_ssl_verification(false)`                        | `transport: NetHTTPTransport.new(ca_file: ...)` 搭配你自己的 CA 证书包   |
+
+## 开发
 
 ```bash
 bundle install
+bundle exec rake test   # 单元测试；均不访问网络
+```
+
+`test/fixtures/openapi.json` 是 API 的 OpenAPI 文档。测试会对照它检查每个请求类（方法、路径、
+查询参数名、请求体字段、必填字段）、每个响应模型的 JSON 字段名是否符合响应
+schema，以及每个枚举值；当 API 新增了没有对应请求类的操作时，测试会失败。更新方法：
+
+```bash
+curl -fsSL -A "ruby-dna-spec-update" -o test/fixtures/openapi.json https://api.domainresellerapi.com/swagger/v1/swagger.json
 bundle exec rake test
 ```
 
-`test/conformance_test.rb` 运行 php-dna 的 126 个一致性测试用例（`test/fixtures/conformance/`）：针对每个场景，它会将发出的请求（方法、路径、查询参数、JSON 请求体、认证头）以及返回值与 php-dna 的结果进行比对。其他测试覆盖 HTTP 层、错误映射、遥测数据屏蔽、Net::HTTP 传输层以及实用工具。
+本仓库的约定请参见 [AGENTS.md](AGENTS.md)。
 
-<hr style="border: 4px solid #000; border-style: dashed;">
+## 支持
 
-## 返回和错误代码及说明
-
-| 代码 | 描述 | 详细 |
-|------|------|------|
-| 1000 | 命令成功完成 | 操作成功。 |
-| 1001 | 命令成功完成；操作待处理 | 操作成功。但是，操作当前已排队等待完成。 |
-| 2003 | 缺少必需参数 | 参数缺失错误。例如：联系信息中没有电话输入。 |
-| 2105 | 对象不符合续费条件 | 域名状态不适合续费，已锁定更新操作。状态不应为"clientupdateprohibited"。可能由于其他状态条件。 |
-| 2200 | 身份验证错误 | 授权错误，安全代码不正确或域名在另一个注册商处注册。 |
-| 2302 | 对象已存在 | 域名或名称服务器信息已存在于数据库中。无法注册。 |
-| 2303 | 对象不存在 | 域名或名称服务器信息在数据库中不存在。需要新注册。 |
-| 2304 | 对象状态禁止操作 | 域名状态不适合更新，已锁定更新操作。状态不应为"clientupdateprohibited"。可能由于其他状态条件。 |
-
-| 代码 | 详细 |
-|------|------|
-| 101 | 系统错误详细信息 ({0})！ |
-| 102 | 多个错误详细信息 ({0})！ |
-| 103 | 未知错误详细信息 ({0})！ |
-| 200 | 未找到 API 命令 ({0})！ |
-| 210 | 未找到 API 服务 ({0})！ |
-| 211 | 未设置 API 服务提供商！ |
-| 300 | 未找到经销商！ |
-| 301 | 您当前的 IP 地址未被授权访问。请确保您从授权的 IP 地址连接并重试 |
-| 310 | 不支持 TLD！ |
-| 320 | 未找到 API！ |
-| 321 | 不支持货币！ |
-| 330 | 未设置必需参数 ({0})。 |
-| – | 确保您完整发送所有联系对象 |
-| 340 | 未找到价格定义 ({0}[{1}]-{2}{3})。 |
-| 350 | 经销商余额不足。(经销商 Id : {0} - 当前余额 : {1} {2})。 |
-| 350 | 会计货币不匹配或余额不足。 |
-| 360 | 字段 ({0}) 的无效 API 请求。 |
-| 360 | API 配额已超出！ |
-| 361 | 限流错误！ |
-| 362 | 高级域名目前无法注册。 |
-| 363 | 由于域名处于自动续费期间，操作已取消 |
-| 364 | 由于注册处问题，此域名目前无法进行交易 |
-
-| 代码 | 详细 |
-|------|------|
-| 400 | 无效联系人 ({0})。 |
-| 401 | 联系信息无法同步。 |
-| 402 | 无法从注册处访问联系信息。 |
-| 403 | 系统缺少信息。输入您的默认信息或联系支持团队。 |
-| 404 | 域名联系人无法更新。来自注册处的权限。 |
-| 410 | 未找到联系人。 |
-| 410 | 未找到联系人 ({0})。 |
-| 420 | 联系人 {0} 的无效 Api 命令。 |
-| 430 | 未找到联系人 api。 |
-| 440 | 联系人未同步。 |
-| 450 | 域名联系人太多..！ |
-| 451 | 无法继续进行联系人更新。 |
-
-| 代码 | 详细 |
-|------|------|
-| 500 | 无效域名 id。 |
-| 500 | 无效域名 id ({0})。 |
-| 501 | 域名无法同步({0}) |
-| 502 | 内部转移失败 |
-| 503 | 域名注册不可用。 |
-| 504 | 域名信息不匹配 .. 之前 :{0} |
-| 505 | 输入 IP 地址。 |
-| 506 | 域名转移已开始但无法读取联系信息 .. |
-| 507 | 授权错误。 |
-| 510 | 未找到域名。 |
-| 511 | 无法找到过期域名。 |
-| 512 | 域名不可续费。 |
-| 513 | 域名不处于可更新状态。必须处于活动状态才能更新 |
-| 514 | 预期赎回期。 |
-| 520 | 域名 "{0}" 的无效 Api 命令。 |
-| 530 | 无效域名期限。期限必须为 {0} 到 {1} 年。请求的期限为 {2} 年。 |
-| 540 | 域名无法延长到当前日期 {0} 年以后。 |
-| 550 | 无效域名。域名必须为 {0} 到 {1} 个字符长度。请求的域名为 {2} 个字符。 |
-| 560 | 无效名称服务器数量。域名必须有 {0} 到 {1} 个名称服务器。请求的名称服务器数量为 {2}。 |
-| 561 | 在传入请求中未找到名称服务器信息 |
-| 570 | tld "{0}" 不支持 Idn。 |
-| 571 | 期限无效。 |
-| 572 | 命令无效。 |
-| 573 | 未找到域名。 |
-| 574 | 未找到 TLD 名称。 |
-| 575 | 域名不处于可更新状态。必须处于活动状态才能更新名称服务器 |
-| 576 | 域名可在到期日期前最后 1 个月内续费 |
-| 580 | tld "{0}" 不支持转移。 |
-| 581 | 未找到子名称服务器 |
-| 582 | 转移由其他经销商发起。 |
-| 583 | 转移未初始化。请联系支持团队。 |
-| 584 | 对象状态禁止操作 |
-| 590 | 此转移需要授权代码。 |
-| 591 | 授权代码无效。 |
-| 592 | 域名上存在转移锁定。 |
-| 593 | 域名无法转移，状态信息和转移锁定必须符合所需标准。(状态信息: #ok) |
-| 594 | 域名服务器地址无法解析 ({0}) |
-| 595 | 无法读取联系信息 (whois.registrar.tld) 请确保隐私保护状态开放 |
-| 596 | 联系信息无法验证 |
-| 597 | 未找到 Tld |
-| 598 | 发生未知错误 |
-| 599 | 未找到域名转发 |
+- API 文档：<https://www.domainnameapi.com/docs/>
+- CLI 与 MCP 服务器：<https://github.com/domainreseller/cli>
+- 网站：<https://www.domainnameapi.com>
 
 ## 许可证
 
-Apache License 2.0 — 详见 [LICENSE](LICENSE)。
+Apache License 2.0。参见 [LICENSE](LICENSE)。
