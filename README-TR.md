@@ -19,7 +19,7 @@
 kayıt, yenileme ve transfer, DNS, DNSSEC, iletişim kayıtları, SSL sertifikaları, hosting, siparişler, ürün
 kataloğu ve bakiyeniz.
 
-- **API'nin 64 işleminin tamamı**, [`dna` CLI](https://github.com/domainreseller/cli) ile aynı şekilde gruplanmıştır:
+- **API'nin 67 işleminin tamamı**, [`dna` CLI](https://github.com/domainreseller/cli) ile aynı şekilde gruplanmıştır:
   `dna domain info` komutu `client.domains.info`, `dna dns add` komutu `client.dns.add` karşılığıdır.
 - **Hash'ler değil, gerçek nesneler**: `domain.status.pending_delete?`, `domain.expiration_date` bir `Time` nesnesidir,
   `availability.available?`, `tld.register_price(1)`.
@@ -122,12 +122,12 @@ Yanlış bir anahtar veya ortam, ilk istekte `auth?` değeri true olan ve `hint`
 
 | Servis             | CLI grubu     | İşlemler                                                                                                                                                         |
 |--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.account`   | `dna account` | `get`, `profile`, `transactions`, `all_transactions`                                                                                                              |
 | `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
 | `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
 | `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
 | `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
-| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`, `renew`, `list`, `all`                        |
 | `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
 | `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
 | `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
@@ -311,12 +311,35 @@ istek başına 50 MB) yüklemeden önce kontrol edilir.
 ```ruby
 csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
                               organization: 'Example Ltd', organization_unit: 'IT')
-client.ssl.purchase('example.com', package_code: 'PositiveSSL') # bakiyeden ücret keser (CLI: dna ssl initialize)
-client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+# bakiyeden ücret keser (CLI: dna ssl initialize)
+order = client.ssl.purchase('example.com', package_code: 'PositiveSSL')
+id = order.certificate_id # saklayın: sonraki her çağrıda gerekir
+client.ssl.configure(certificate_id: id, csr: csr.csr, approver_mail: 'admin@example.com',
                      authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
-client.ssl.status('example.com').issued? # true olana kadar sorgulayın
-File.write('example.com.crt', client.ssl.content('example.com').chain)
+client.ssl.status(id).issued? # true olana kadar sorgulayın
+File.write('example.com.crt', client.ssl.content(id).chain)
 ```
+
+Bir alan adının birden fazla sertifikası olabilir; bu nedenle mevcut bir sertifika alan adıyla değil,
+`certificate_id` değeriyle (bir GUID) belirtilir: `purchase` ve `renew` bu değeri döndürür, `list` ise onu bulur.
+Kimlik beklenen yere alan adı verilirse, hiçbir şey gönderilmeden `InputError` fırlatılır. Sertifikayı satın
+aldıktan veya yeniledikten sonra 15 gün içinde yapılandırın.
+
+```ruby
+client.ssl.list(domain_name: 'example.com').each { |c| puts "#{c.certificate_id} #{c.status}" } # en yeni en başta
+client.ssl.all { |c| puts "#{c.domain_name} #{c.subscription_expires_at}" } # tüm sertifikalar, sayfa sayfa
+
+client.ssl.approvers(certificate_id: id)                                      # mevcut bir sertifika için
+client.ssl.approvers(domain_name: 'example.com', package_code: 'PositiveSSL') # satın almadan önce
+
+renewal = client.ssl.renew(id) # bakiyeden ücret keser; abonelik bitimine 30 gün kala mümkün olur
+client.ssl.configure(certificate_id: renewal.certificate_id, csr: new_csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+```
+
+Yenilemek için `renew` çağırın ve döndürdüğü yeni sertifikayı `configure` ile yapılandırın. Yeniden `purchase`
+çağırmayın: bu, satın alma fiyatı üzerinden ilgisiz yeni bir sipariştir ve eski sertifika hiçbir zaman `Renewed`
+durumuna geçmez.
 
 ### Hosting
 
@@ -335,6 +358,7 @@ Hâlâ hazırlanmakta olan bir hosting için `create` metodunu bir daha çağır
 ```ruby
 account = client.account.get
 account.balance('USD')
+profile = client.account.profile # profile.company_name, profile.account_currency, profile.status.active?
 
 client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
   puts "#{tx.creation_time} #{tx.type} #{tx.change}"

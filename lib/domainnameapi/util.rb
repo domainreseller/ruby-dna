@@ -37,6 +37,14 @@ module DomainNameApi
       value.to_s.gsub(/[^0-9]/, '')
     end
 
+    GUID_PATTERN = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/.freeze
+
+    # Whether the value is a GUID such as "6f1c0000-0000-4000-8000-000000000001":
+    # hex in any case, surrounding whitespace ignored.
+    def guid?(value)
+      GUID_PATTERN.match?(clean(value))
+    end
+
     # :domain_name -> "domainName"; with upper: true -> "DomainName".
     def camelize(name, upper: false)
       parts = name.to_s.split('_')

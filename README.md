@@ -19,7 +19,7 @@ Ruby client for the [Domain Name API](https://www.domainnameapi.com) reseller RE
 registration, renewal and transfer, DNS, DNSSEC, contacts, SSL certificates, hosting, orders, the product
 catalogue and your balance.
 
-- **All 64 API operations**, grouped the same way as the [`dna` CLI](https://github.com/domainreseller/cli):
+- **All 67 API operations**, grouped the same way as the [`dna` CLI](https://github.com/domainreseller/cli):
   `dna domain info` is `client.domains.info`, `dna dns add` is `client.dns.add`.
 - **Real objects, not hashes**: `domain.status.pending_delete?`, `domain.expiration_date` is a `Time`,
   `availability.available?`, `tld.register_price(1)`.
@@ -122,12 +122,12 @@ says what to check; `client.account.get` is the cheapest way to try.
 
 | Service            | CLI group     | Methods                                                                                                                                                           |
 |--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.account`   | `dna account` | `get`, `profile`, `transactions`, `all_transactions`                                                                                                              |
 | `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
 | `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
 | `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
 | `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
-| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`, `renew`, `list`, `all`                        |
 | `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
 | `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
 | `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
@@ -311,12 +311,34 @@ request) are checked before upload.
 ```ruby
 csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
                               organization: 'Example Ltd', organization_unit: 'IT')
-client.ssl.purchase('example.com', package_code: 'PositiveSSL') # charges the balance (CLI: dna ssl initialize)
-client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+# charges the balance (CLI: dna ssl initialize)
+order = client.ssl.purchase('example.com', package_code: 'PositiveSSL')
+id = order.certificate_id # store it: every later call takes it
+client.ssl.configure(certificate_id: id, csr: csr.csr, approver_mail: 'admin@example.com',
                      authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
-client.ssl.status('example.com').issued? # poll until true
-File.write('example.com.crt', client.ssl.content('example.com').chain)
+client.ssl.status(id).issued? # poll until true
+File.write('example.com.crt', client.ssl.content(id).chain)
 ```
+
+A domain can have several certificates, so an existing certificate is addressed by its `certificate_id` (a GUID),
+never by its domain name: `purchase` and `renew` return it, and `list` finds it. A domain name where an id is
+expected raises `InputError` before anything is sent. Configure a certificate within 15 days of buying or renewing
+it.
+
+```ruby
+client.ssl.list(domain_name: 'example.com').each { |c| puts "#{c.certificate_id} #{c.status}" } # newest first
+client.ssl.all { |c| puts "#{c.domain_name} #{c.subscription_expires_at}" } # every certificate, page by page
+
+client.ssl.approvers(certificate_id: id)                                      # of an existing certificate
+client.ssl.approvers(domain_name: 'example.com', package_code: 'PositiveSSL') # before a purchase
+
+renewal = client.ssl.renew(id) # charges the balance; possible from 30 days before the subscription ends
+client.ssl.configure(certificate_id: renewal.certificate_id, csr: new_csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+```
+
+To renew, call `renew` and then `configure` the new certificate it returns. Do not `purchase` again: that is an
+unrelated new order at the purchase price, and the old certificate never becomes `Renewed`.
 
 ### Hosting
 
@@ -335,6 +357,7 @@ Never call `create` again for a hosting that is still provisioning: that charges
 ```ruby
 account = client.account.get
 account.balance('USD')
+profile = client.account.profile # profile.company_name, profile.account_currency, profile.status.active?
 
 client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
   puts "#{tx.creation_time} #{tx.type} #{tx.change}"

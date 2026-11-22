@@ -18,6 +18,42 @@ class ServicesTest < Minitest::Test
     assert_equal '/api/v1/deposit/accounts/me', api.path
   end
 
+  def test_account_profile
+    client, api = fake_client(ok('id' => RESELLER_ID, 'resellerAutoId' => 1042, 'name' => 'Example',
+                                 'companyName' => 'Example Ltd', 'resellerGroupName' => 'Gold',
+                                 'accountCurrency' => 2, 'status' => 0, 'isSubReseller' => false,
+                                 'isBalanceSuspended' => true, 'isMcpEnabled' => true))
+    profile = client.account.profile
+    assert_instance_of ResellerProfile, profile
+    assert_equal RESELLER_ID, profile.id
+    assert_equal 1042, profile.reseller_auto_id
+    assert_equal 'Example', profile.name
+    assert_equal 'Example Ltd', profile.company_name
+    assert_equal 'Gold', profile.reseller_group_name
+    assert_same AccountCurrency::USD, profile.account_currency
+    assert_equal 'USD', profile.account_currency.to_s
+    assert profile.status.active?
+    refute profile.sub_reseller?
+    assert profile.balance_suspended?
+    assert profile.mcp_enabled?
+    assert_equal 'GET', api.last.http_method
+    assert_equal '/api/v1/resellers/me', api.path
+    assert_empty api.query
+    assert_nil api.last.body
+
+    client, = fake_client(ok('accountCurrency' => 1, 'status' => 2))
+    profile = client.account.profile
+    assert profile.account_currency.try?
+    assert profile.status.suspend?
+    assert_equal 'Suspend', profile.status.to_s
+    assert_equal :waiting_for_completion_wizard, ResellerStatus.decode(3).to_sym
+    refute ResellerStatus.decode(9).known?, 'a status this gem does not know still decodes'
+
+    client, api = fake_client(ok('status' => 0), read_only: true)
+    assert client.account.profile.status.active?, 'the profile is a plain read'
+    assert_equal 1, api.requests.size
+  end
+
   def test_account_transactions
     page = { 'items' => [{ 'traceId' => 't1', 'type' => 2, 'status' => 1, 'chargeType' => 1, 'balance' => 88.01,
                            'oldBalance' => 100, 'creationTime' => '2026-01-05T10:00:00' }], 'totalCount' => 1 }
@@ -506,55 +542,240 @@ class ServicesTest < Minitest::Test
     refute api.json.key?('alternativeNames')
     assert_raises(InputError) { client.ssl.generate_csr(domain_name: 'example.com', country: 'TUR') }
 
-    client, api = fake_client(ok('success' => true, 'certificateId' => 'c1'))
-    assert_equal 'c1', client.ssl.purchase('example.com', package_code: 'PositiveSSL').certificate_id
+    client, api = fake_client(ok('success' => true, 'certificateId' => CERTIFICATE_ID, 'status' => 'WaitingForInstall'))
+    assert_equal CERTIFICATE_ID, client.ssl.purchase('example.com', package_code: 'PositiveSSL').certificate_id
     assert_equal({ 'domainName' => 'example.com', 'packageCode' => 'PositiveSSL' }, api.json)
 
-    client.ssl.configure(domain_name: 'example.com', csr: 'CSR', approver_mail: 'admin@example.com',
+    client.ssl.configure(certificate_id: CERTIFICATE_ID, csr: 'CSR', approver_mail: 'admin@example.com',
                          authentication_type: :email, web_server_type: :iis, san_list: %w[a.example.com b.example.com],
                          contact: sample_ssl_contact.to_h)
     body = api.json
+    assert_equal CERTIFICATE_ID, body['certificateId']
+    refute body.key?('domainName'), 'a certificate is addressed by its id only'
     assert_equal 'Email', body['authenticationType']
     assert_equal 'IIS', body['webServerType']
     assert_equal 'a.example.com,b.example.com', body['sanList']
     refute body.key?('wildcardList')
     assert_equal 'Ada', body['contact']['firstName']
     e = assert_raises(InputError) do
-      client.ssl.configure(domain_name: 'example.com', csr: 'CSR', approver_mail: 'nope', authentication_type: :fax,
-                           contact: { first_name: 'Ada' })
+      client.ssl.configure(certificate_id: CERTIFICATE_ID, csr: 'CSR', approver_mail: 'nope',
+                           authentication_type: :fax, contact: { first_name: 'Ada' })
     end
     assert_includes e.fields.map(&:field), 'approver_mail'
     assert_includes e.fields.map(&:field), 'authentication_type'
     assert_includes e.fields.map(&:field), 'contact.company_name'
+    refute_includes e.fields.map(&:field), 'certificate_id'
 
-    client, = fake_client(ok('success' => false, 'message' => 'CSR mismatch'))
-    assert_raises(OperationError) { client.ssl.reissue('example.com', csr: 'CSR') }
+    client, api = fake_client(ok('success' => false, 'message' => 'CSR mismatch'))
+    assert_raises(OperationError) { client.ssl.reissue(CERTIFICATE_ID, csr: 'CSR') }
+    assert_equal({ 'certificateId' => CERTIFICATE_ID, 'csr' => 'CSR' }, api.json)
 
-    client, api = fake_client(ok('domainName' => 'example.com', 'status' => 'Issued', 'isIssued' => true,
-                                 'certificateExpiresAt' => '2027-05-01T00:00:00'))
-    st = client.ssl.status('example.com')
+    client, api = fake_client(ok('certificateId' => CERTIFICATE_ID, 'domainName' => 'example.com', 'status' => 'Active',
+                                 'isIssued' => true, 'certificateExpiresAt' => '2027-05-01T00:00:00'))
+    st = client.ssl.status(CERTIFICATE_ID)
     assert st.issued?
+    assert_equal CERTIFICATE_ID, st.certificate_id
     assert_equal Time.utc(2027, 5, 1), st.expires_at
     assert_equal 'PUT', api.last.http_method
+    assert_equal({ 'certificateId' => CERTIFICATE_ID }, api.json)
 
-    client, = fake_client(ok('certificate' => { 'issuedAt' => '2026-05-01T00:00:00' },
-                             'subscription' => { 'expiresAt' => '2027-05-01T00:00:00' },
-                             'configuration' => { 'approverMail' => 'admin@example.com' },
-                             'contacts' => [{ 'firstName' => 'Ada', 'type' => 'Admin' }]))
-    cert = client.ssl.get('example.com')
+    client, api = fake_client(ok('certificateId' => CERTIFICATE_ID, 'domainName' => 'example.com',
+                                 'certificate' => { 'issuedAt' => '2026-05-01T00:00:00' },
+                                 'subscription' => { 'expiresAt' => '2027-05-01T00:00:00' },
+                                 'configuration' => { 'approverMail' => 'admin@example.com' },
+                                 'contacts' => [{ 'firstName' => 'Ada', 'type' => 'Admin' }]))
+    cert = client.ssl.get(CERTIFICATE_ID)
+    assert_equal CERTIFICATE_ID, cert.certificate_id
     assert_equal Time.utc(2026, 5, 1), cert.certificate.issued_at
     assert_equal 'admin@example.com', cert.configuration.approver_mail
     assert_equal 'Admin', cert.contacts.first.type
+    assert_equal [['CertificateId', CERTIFICATE_ID]], api.query
 
-    client, = fake_client(ok('certificate' => 'C', 'intermediateCertificate1' => 'I'))
-    assert_equal "C\nI\n", client.ssl.content('example.com').chain
+    client, api = fake_client(ok('certificateId' => CERTIFICATE_ID, 'certificate' => 'C',
+                                 'intermediateCertificate1' => 'I'))
+    content = client.ssl.content(CERTIFICATE_ID)
+    assert_equal "C\nI\n", content.chain
+    assert_equal CERTIFICATE_ID, content.certificate_id
+    assert_equal '/api/v1/ssls/certificate-content', api.path
+    assert_equal [['CertificateId', CERTIFICATE_ID]], api.query
 
-    client, api = fake_client(ok('mails' => ['admin@example.com']))
-    assert_equal ['admin@example.com'], client.ssl.approvers('example.com', package_code: 'PositiveSSL')
-    assert_equal [%w[DomainName example.com], %w[PackageCode PositiveSSL]], api.query
+    client, api = fake_client(ok('success' => true))
+    assert client.ssl.revoke(CERTIFICATE_ID).success?
+    assert_equal 'DELETE', api.last.http_method
+    assert_equal [['CertificateId', CERTIFICATE_ID]], api.query, 'the id goes in the query string'
+    assert_nil api.last.body, 'the API reads no body on revoke'
+  end
 
-    client, = fake_client(ok('success' => true))
-    assert client.ssl.revoke('example.com').success?
+  # A domain name where a certificate id belongs is refused before anything is
+  # sent: callers written for the old API keep passing one.
+  def test_ssl_certificate_id_guard
+    client, api = fake_client(ok('success' => true, 'mails' => []))
+    calls = {
+      'SSLStatusRequest' => ->(id) { client.ssl.status(id) },
+      'SSLGetRequest' => ->(id) { client.ssl.get(id) },
+      'SSLContentRequest' => ->(id) { client.ssl.content(id) },
+      'SSLReissueRequest' => ->(id) { client.ssl.reissue(id, csr: 'CSR') },
+      'SSLRevokeRequest' => ->(id) { client.ssl.revoke(id) },
+      'SSLRenewRequest' => ->(id) { client.ssl.renew(id) },
+      'SSLConfigureRequest' => lambda { |id|
+        client.ssl.configure(certificate_id: id, csr: 'CSR', contact: sample_ssl_contact)
+      },
+      'SSLApproversRequest' => ->(id) { client.ssl.approvers(certificate_id: id) }
+    }
+    not_ids = ['example.com', '*.example.com', 'c1', '3fa85f64571745624b3fc2c963f66afa6',
+               '3fa85f64-5717-4562-b3fc-2c963f66afa', '3fa85f64-5717-4562-b3fc-2c963f66afaz',
+               "{#{CERTIFICATE_ID}}", "#{CERTIFICATE_ID}\nexample.com", 12_345]
+    calls.each do |request, call|
+      not_ids.each do |value|
+        e = assert_raises(InputError, "#{request} #{value.inspect}") { call.call(value) }
+        assert_equal request, e.request
+        assert_equal :invalid_input, e.kind
+        assert_equal ['certificate_id'], e.fields.map(&:field), "#{request} #{value.inspect}"
+        assert_equal 'must be a certificate id (GUID). Certificates are no longer addressed by domain name: ' \
+                     'use the certificate_id returned by ssl.purchase or ssl.renew, or look it up with ' \
+                     'ssl.list(domain_name: ...)', e.fields.first.message
+      end
+    end
+    assert_empty api.requests, 'nothing is sent for an invalid certificate id'
+
+    # A missing id is reported as missing, except by approvers, which then needs a domain.
+    calls.each do |request, call|
+      next if request == 'SSLApproversRequest'
+
+      [nil, '', '  '].each do |value|
+        e = assert_raises(InputError, "#{request} #{value.inspect}") { call.call(value) }
+        assert_equal ['certificate_id: is required'], e.fields.map(&:to_s)
+      end
+    end
+    e = assert_raises(ArgumentError) { client.ssl.configure(domain_name: 'example.com', csr: 'CSR') }
+    assert_includes e.message, 'unknown attribute :domain_name for SSLConfigureRequest'
+    assert_empty api.requests
+
+    # Any case, surrounding whitespace trimmed.
+    calls.each_value { |call| call.call("  #{CERTIFICATE_ID.upcase}\n") }
+    assert_equal calls.size, api.requests.size
+    sent = api.requests.map { |r| api.json(r)&.fetch('certificateId') || api.query_hash(r)['CertificateId'].first }
+    assert_equal [CERTIFICATE_ID.upcase], sent.uniq
+  end
+
+  def test_ssl_approvers
+    client, api = fake_client(ok('mails' => ['admin@example.com', 'webmaster@example.com']))
+    assert_equal ['admin@example.com', 'webmaster@example.com'], client.ssl.approvers(certificate_id: CERTIFICATE_ID)
+    assert_equal [['CertificateId', CERTIFICATE_ID]], api.query, 'an existing certificate: the id alone'
+    assert_equal 'GET', api.last.http_method
+    assert_equal '/api/v1/ssls/approvers', api.path
+
+    client.ssl.approvers(domain_name: ' example.com ', package_code: 'PositiveSSL')
+    assert_equal [%w[DomainName example.com], %w[PackageCode PositiveSSL]], api.query, 'before a purchase'
+
+    neither = 'certificate_id: set either certificate_id (an existing certificate) or domain_name and ' \
+              'package_code (before a purchase)'
+    no_package = 'package_code: is required with domain_name; for an existing certificate pass certificate_id ' \
+                 'instead'
+    both = 'certificate_id: is used alone: its domain and package are taken from the certificate, so leave out ' \
+           'domain_name and package_code'
+    {
+      {} => neither,
+      { package_code: 'PositiveSSL' } => neither,
+      { domain_name: 'example.com' } => no_package,
+      { domain_name: 'example.com', package_code: ' ' } => no_package,
+      { certificate_id: CERTIFICATE_ID, domain_name: 'example.com', package_code: 'PositiveSSL' } => both,
+      { certificate_id: CERTIFICATE_ID, package_code: 'PositiveSSL' } => both
+    }.each do |args, message|
+      e = assert_raises(InputError, args.inspect) { client.ssl.approvers(**args) }
+      assert_equal [message], e.fields.map(&:to_s), args.inspect
+    end
+    assert_raises(ArgumentError) { client.ssl.approvers('example.com', package_code: 'PositiveSSL') }
+    assert_equal 2, api.requests.size, 'nothing is sent for invalid input'
+  end
+
+  def test_ssl_renew
+    renewal_id = '9b2e4f10-1c3d-4e5f-8a6b-7c8d9e0f1a2b'
+    client, api = fake_client(ok('success' => true, 'certificateId' => renewal_id, 'status' => 'WaitingForInstall',
+                                 'message' => 'SSL certificate renewal initialized successfully.'))
+    renewal = client.ssl.renew(CERTIFICATE_ID)
+    assert_equal renewal_id, renewal.certificate_id, 'the answer names the new certificate, the one to configure'
+    assert_equal 'WaitingForInstall', renewal.status
+    assert_equal 'POST', api.last.http_method
+    assert_equal '/api/v1/ssls/renew', api.path
+    assert_equal({ 'certificateId' => CERTIFICATE_ID }, api.json)
+    assert_empty api.query
+
+    client, = fake_client(ok('success' => false, 'message' => 'cannot be renewed'))
+    e = assert_raises(OperationError) { client.ssl.renew(CERTIFICATE_ID) }
+    assert_equal 'cannot be renewed', e.api_message
+
+    client, = fake_client(api_error(400, 'Dna.SslService:Ssl:10057', 'Renewal opens on 2027-04-01'))
+    e = assert_raises(APIError) { client.ssl.renew(CERTIFICATE_ID) }
+    assert e.code?('Dna.SslService:Ssl:10057')
+
+    # Renewing charges the balance: like a purchase, it is never sent twice and
+    # read-only mode blocks it.
+    request = SSLRenewRequest.new(certificate_id: CERTIFICATE_ID)
+    assert request.billable?
+    refute request.idempotent?
+    client, api = fake_client(Net::ReadTimeout.new, ok('success' => true))
+    e = assert_raises(NetworkError) { client.ssl.renew(CERTIFICATE_ID) }
+    assert e.outcome_unknown?
+    assert_equal 1, api.requests.size, 'a renewal is never resent after a network error'
+    client, api = fake_client(status(503), ok('success' => true))
+    assert_raises(APIError) { client.ssl.renew(CERTIFICATE_ID) }
+    assert_equal 1, api.requests.size, 'nor after a 503'
+    client, api = fake_client(ok('success' => true), read_only: true)
+    e = assert_raises(ReadOnlyError) { client.ssl.renew(CERTIFICATE_ID) }
+    assert_equal :billable, e.safety
+    assert_empty api.requests
+  end
+
+  def test_ssl_list_and_all
+    item = { 'certificateId' => CERTIFICATE_ID, 'domainName' => 'example.com', 'packageCode' => 'PositiveSSL',
+             'packageName' => 'Positive SSL', 'status' => 'WaitingForInstall', 'statusReason' => 'None',
+             'isConfigured' => false, 'isIssued' => false, 'purchasedAt' => '2026-11-20T09:00:00',
+             'subscriptionExpiresAt' => '2027-11-20T09:00:00', 'certificateExpiresAt' => nil,
+             'renewedFromCertificateId' => '9b2e4f10-1c3d-4e5f-8a6b-7c8d9e0f1a2b' }
+    client, api = fake_client(ok('totalCount' => 1, 'items' => [item]))
+    page = client.ssl.list(domain_name: ' example.com ', skip: 20, limit: 10)
+    assert_equal 1, page.total_count
+    c = page.first
+    assert_instance_of CertificateListItem, c
+    assert_equal CERTIFICATE_ID, c.certificate_id
+    assert_equal 'example.com', c.domain_name
+    assert_equal 'PositiveSSL', c.package_code
+    assert_equal 'Positive SSL', c.package_name
+    assert_equal 'WaitingForInstall', c.status
+    assert_equal 'None', c.status_reason
+    refute c.configured?
+    refute c.issued?
+    assert_equal Time.utc(2026, 11, 20, 9), c.purchased_at
+    assert_equal Time.utc(2027, 11, 20, 9), c.subscription_expires_at
+    assert_nil c.certificate_expires_at
+    assert_equal '9b2e4f10-1c3d-4e5f-8a6b-7c8d9e0f1a2b', c.renewed_from_certificate_id
+    assert_equal 'GET', api.last.http_method
+    assert_equal '/api/v1/ssls', api.path
+    assert_equal [%w[DomainName example.com], %w[SkipCount 20], %w[MaxResultCount 10]], api.query
+
+    client.ssl.list
+    assert_empty api.query, 'no filter and the API defaults'
+    client.ssl.list(SSLListRequest.new(limit: 5))
+    assert_equal [%w[MaxResultCount 5]], api.query
+    assert_raises(ArgumentError) { client.ssl.list(SSLListRequest.new, skip: 1) }
+    e = assert_raises(InputError) { client.ssl.list(sort: 'purchasedAt desc') }
+    assert_equal ['sort: is not supported: certificates are always listed newest first'], e.fields.map(&:to_s)
+    assert_raises(InputError) { client.ssl.list(skip: -1) }
+
+    ids = %w[a b c].map { |x| { 'certificateId' => x, 'domainName' => 'example.com' } }
+    client, api = fake_client(ok('items' => ids[0, 2], 'totalCount' => 3), ok('items' => ids[2, 1], 'totalCount' => 3))
+    seen = []
+    client.ssl.all(domain_name: 'example.com', limit: 2) { |cert| seen << cert.certificate_id }
+    assert_equal %w[a b c], seen
+    assert_equal [[%w[DomainName example.com], %w[MaxResultCount 2]],
+                  [%w[DomainName example.com], %w[SkipCount 2], %w[MaxResultCount 2]]],
+                 api.requests.map { |r| api.query(r) }
+
+    client, api = fake_client(ok('items' => Array.new(100) { |i| { 'certificateId' => "c#{i}" } }, 'totalCount' => 500))
+    assert_equal 3, client.ssl.all.first(3).size
+    assert_equal 1, api.requests.size, 'the enumerator fetches lazily'
+    assert_equal [%w[MaxResultCount 100]], api.query
   end
 
   # --- hosting ---------------------------------------------------------------
@@ -661,6 +882,7 @@ class ServicesTest < Minitest::Test
     contact = sample_contact
     calls = {
       'GET /api/v1/deposit/accounts/me' => ->(c) { c.account.get },
+      'GET /api/v1/resellers/me' => ->(c) { c.account.profile },
       'GET /api/v1/deposit/transactions' => ->(c) { c.account.transactions },
       'GET /api/v1/contacts/DNA-1' => ->(c) { c.contacts.get('DNA-1') },
       'POST /api/v1/contacts' => ->(c) { c.contacts.create(contact) },
@@ -721,14 +943,16 @@ class ServicesTest < Minitest::Test
       'POST /api/v1/ssls/check-csr' => ->(c) { c.ssl.check_csr('CSR') },
       'POST /api/v1/ssls/initialize' => ->(c) { c.ssl.purchase('example.com', package_code: 'P') },
       'PUT /api/v1/ssls/configure' => lambda { |c|
-        c.ssl.configure(domain_name: 'example.com', csr: 'CSR', contact: sample_ssl_contact)
+        c.ssl.configure(certificate_id: CERTIFICATE_ID, csr: 'CSR', contact: sample_ssl_contact)
       },
-      'PUT /api/v1/ssls/check-status' => ->(c) { c.ssl.status('example.com') },
-      'GET /api/v1/ssls/certificate' => ->(c) { c.ssl.get('example.com') },
-      'GET /api/v1/ssls/certificate-content' => ->(c) { c.ssl.content('example.com') },
-      'POST /api/v1/ssls/reissue' => ->(c) { c.ssl.reissue('example.com') },
-      'GET /api/v1/ssls/approvers' => ->(c) { c.ssl.approvers('example.com') },
-      'DELETE /api/v1/ssls/revoke' => ->(c) { c.ssl.revoke('example.com') },
+      'PUT /api/v1/ssls/check-status' => ->(c) { c.ssl.status(CERTIFICATE_ID) },
+      'GET /api/v1/ssls/certificate' => ->(c) { c.ssl.get(CERTIFICATE_ID) },
+      'GET /api/v1/ssls/certificate-content' => ->(c) { c.ssl.content(CERTIFICATE_ID) },
+      'POST /api/v1/ssls/reissue' => ->(c) { c.ssl.reissue(CERTIFICATE_ID) },
+      'GET /api/v1/ssls/approvers' => ->(c) { c.ssl.approvers(certificate_id: CERTIFICATE_ID) },
+      'DELETE /api/v1/ssls/revoke' => ->(c) { c.ssl.revoke(CERTIFICATE_ID) },
+      'POST /api/v1/ssls/renew' => ->(c) { c.ssl.renew(CERTIFICATE_ID) },
+      'GET /api/v1/ssls' => ->(c) { c.ssl.list },
       'GET /api/v1/hostings/packages' => ->(c) { c.hosting.packages },
       'GET /api/v1/hostings/plans' => ->(c) { c.hosting.plans },
       'POST /api/v1/hostings/create' => ->(c) { c.hosting.create('example.com', service_plan: 'P') },
@@ -741,7 +965,7 @@ class ServicesTest < Minitest::Test
       'GET /api/v1/products/tlds' => ->(c) { c.products.tlds },
       'GET /api/v1/products/ssls' => ->(c) { c.products.ssls }
     }
-    assert_equal 64, calls.size
+    assert_equal 67, calls.size
     # One answer every operation accepts: success flags set, a handle, a forwarding target.
     universal = ok('success' => true, 'isSuccess' => true, 'contactUpdateSuccess' => true, 'handle' => 'DNA-1',
                    'redirectAlias' => 'https://example.org', 'items' => [], 'infos' => [{ 'domainName' => 'x' }])

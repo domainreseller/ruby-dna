@@ -136,6 +136,9 @@ class ErrorsTest < Minitest::Test
     assert_includes from(302).hint, 'reseller ID'
     assert_includes from(401, 'Unauthorized! Invalid API Key.').hint, 'different API keys'
     assert_includes from(404).hint, 'production and OTE'
+    assert_includes from(404).hint, 'client.domains.list'
+    certificate = APIError.from_response(http_method: 'GET', path: '/api/v1/ssls/certificate', status: 404)
+    assert_includes certificate.hint, 'client.ssl.list', 'a certificate is found by its id, not in the domain list'
     assert_nil from(500).hint
     assert_includes from(500, '', 'x-correlation-id' => 'c-9').hint, 'c-9'
     assert_nil from(409).hint

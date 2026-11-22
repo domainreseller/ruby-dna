@@ -4,6 +4,53 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Breaking, and forced by the API.** Since 2026-11-20 the API (production and OTE) addresses an existing SSL
+certificate by its `certificateId` instead of its domain name, because a domain can now have several
+certificates. Version 2.0.0 still sends the domain name, so its `ssl.configure`, `status`, `get`, `content`,
+`reissue` and `revoke` calls no longer work, and its `ssl.approvers` only works with a package code; staying on
+2.0.0 does not avoid the change.
+
+### Changed
+
+- **Breaking:** `ssl.status`, `ssl.get`, `ssl.content`, `ssl.reissue` and `ssl.revoke` take the certificate id
+  instead of the domain name: `client.ssl.status(certificate_id)`.
+- **Breaking:** `ssl.configure` takes `certificate_id:` instead of `domain_name:`. The CSR's common name must
+  match the certificate's domain.
+- **Breaking:** `ssl.approvers` takes keywords only, in one of two forms: `approvers(certificate_id: id)` for an
+  existing certificate, or `approvers(domain_name: 'example.com', package_code: 'PositiveSSL')` before a purchase.
+  The package code is now required with a domain name, and the two forms cannot be mixed.
+- **Breaking:** `SSLConfigureRequest`, `SSLStatusRequest`, `SSLGetRequest`, `SSLContentRequest`,
+  `SSLReissueRequest` and `SSLRevokeRequest` have a `certificate_id` attribute and no `domain_name`;
+  `SSLApproversRequest` has `certificate_id`, `domain_name` and `package_code`.
+- A certificate id that is not a GUID raises `InputError` before anything is sent, with a message that says where
+  to get the id. This catches code written for the old API that still passes a domain name.
+- Renewing a certificate is `ssl.renew` followed by `ssl.configure` of the certificate it returns. A second
+  `ssl.purchase` is an unrelated new order at the purchase price, and the old certificate never becomes `Renewed`.
+- The API now gives 15 days (it was 7) to configure a certificate after `ssl.purchase` or `ssl.renew`.
+
+What to change in your code:
+
+1. Store the `certificate_id` of the `ssl.purchase` result. For certificates you already have, look it up once:
+   `client.ssl.list(domain_name: 'example.com').first.certificate_id`.
+2. Pass that id wherever you passed the domain name to `status`, `get`, `content`, `reissue` and `revoke`, and as
+   `certificate_id:` to `configure`.
+3. Call `approvers` with `certificate_id:`, or with `domain_name:` and `package_code:` before a purchase.
+4. Renew with `renewal = client.ssl.renew(certificate_id)` and configure `renewal.certificate_id`.
+
+### Added
+
+- `ssl.renew(certificate_id)` (`SSLRenewRequest`, `POST /api/v1/ssls/renew`): renews a certificate and returns the
+  new certificate to configure. It charges the balance, so it is `:billable` like `ssl.purchase`: never retried
+  after a network error and blocked by `read_only: true`.
+- `ssl.list` and `ssl.all` (`SSLListRequest`, `GET /api/v1/ssls`): your certificates, newest first, optionally of
+  one domain, as `CertificateListItem` values; `ssl.all` fetches the pages as you go, like `domains.all`.
+- `certificate_id` on `Certificate`, `CertificateStatus` and `CertificateContent`.
+- `account.profile` (`AccountProfileRequest`, `GET /api/v1/resellers/me`): the reseller's `ResellerProfile` with
+  the new `AccountCurrency` and `ResellerStatus` enums.
+- The SDK now covers all 67 operations of the API.
+
 ## [2.0.0] - 2026-11-20
 
 A new SDK, designed for Ruby and for the REST API instead of ported from php-dna. It follows the `dna` CLI and
@@ -94,6 +141,7 @@ First release: a faithful Ruby port of [php-dna](https://github.com/domainresell
 - Runnable examples for every method, Minitest suite, GitHub Actions CI for Ruby 2.7–3.4.
 - README in English, Turkish, German, French, Italian, Dutch, Azerbaijani, Arabic and Simplified Chinese.
 
+[Unreleased]: https://github.com/domainreseller/ruby-dna/compare/v2.0.0...HEAD
 [2.0.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v2.0.0
 [1.0.1]: https://github.com/domainreseller/ruby-dna/releases/tag/v1.0.1
 [1.0.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v1.0.0

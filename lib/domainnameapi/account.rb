@@ -19,6 +19,27 @@ module DomainNameApi
     end
   end
 
+  # The reseller's profile: who the account is and what state it is in.
+  class ResellerProfile < Model
+    # The reseller ID (a GUID).
+    field :id
+    # The reseller's numeric ID.
+    field :reseller_auto_id, :integer
+    field :name
+    field :company_name
+    field :reseller_group_name
+    # AccountCurrency: :try, :usd or :euro.
+    field :account_currency, AccountCurrency
+    # ResellerStatus: :active, :waiting_for_approval, :suspend or
+    # :waiting_for_completion_wizard.
+    field :status, ResellerStatus
+    field :sub_reseller, :boolean, from: 'isSubReseller'
+    # Whether the balance is suspended; purchases are refused while it is.
+    field :balance_suspended, :boolean, from: 'isBalanceSuspended'
+    # Whether MCP access is enabled for the account.
+    field :mcp_enabled, :boolean, from: 'isMcpEnabled'
+  end
+
   # One entry of the balance ledger.
   class Transaction < Model
     field :trace_id
@@ -53,6 +74,12 @@ module DomainNameApi
   class AccountGetRequest < BaseRequest
     endpoint :get, '/api/v1/deposit/accounts/me', safety: :read
     returns Account
+  end
+
+  # Reads the reseller's profile. CLI: dna account profile
+  class AccountProfileRequest < BaseRequest
+    endpoint :get, '/api/v1/resellers/me', safety: :read
+    returns ResellerProfile
   end
 
   # Lists balance transactions. CLI: dna account transactions
@@ -108,12 +135,23 @@ module DomainNameApi
     end
   end
 
-  # The reseller account: balances and the balance ledger. CLI: dna account
+  # The reseller account: balances, the profile and the balance ledger.
+  # CLI: dna account
   class AccountService < Service
     # The account and its TRY and USD balances. Also the cheapest way to check
     # that the credentials work.
     def get
       call(AccountGetRequest.new)
+    end
+
+    # The reseller's profile: names, the reseller group, the account currency,
+    # the status and its flags. For the balances use #get.
+    #
+    #   profile = client.account.profile
+    #   profile.status.active?           # profile.account_currency.to_s => "USD"
+    #   profile.balance_suspended?
+    def profile
+      call(AccountProfileRequest.new)
     end
 
     # One page of the balance ledger.
