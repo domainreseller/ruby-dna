@@ -47,7 +47,7 @@ module DomainNameApi
 
     METHODS = %w[GET POST PUT DELETE PATCH].freeze
 
-    # Account: balance and balance transactions (dna account).
+    # Account: balance, profile and balance transactions (dna account).
     attr_reader :account
     # Contacts: reusable contact handles (dna contact).
     attr_reader :contacts

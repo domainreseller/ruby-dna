@@ -205,6 +205,21 @@ module DomainNameApi
 
   # --- Account, orders and products -------------------------------------------
 
+  # The currency a reseller account is kept in.
+  class AccountCurrency < Enum
+    member :try, 1, name: 'TRY', aliases: %w[tl], description: 'Turkish lira'
+    member :usd, 2, name: 'USD', description: 'US dollar'
+    member :euro, 3, name: 'EURO', aliases: %w[eur], description: 'euro'
+  end
+
+  # State of a reseller account.
+  class ResellerStatus < Enum
+    member :active, 0
+    member :waiting_for_approval, 1
+    member :suspend, 2, aliases: %w[suspended], description: 'the account is suspended'
+    member :waiting_for_completion_wizard, 3
+  end
+
   # Kind of a balance transaction.
   class TransactionType < Enum
     member :register, 1

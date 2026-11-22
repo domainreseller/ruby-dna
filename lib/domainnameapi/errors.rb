@@ -370,6 +370,11 @@ module DomainNameApi
 
       case kind
       when ErrorKind::NOT_FOUND
+        if path.to_s.start_with?('/api/v1/ssls')
+          return 'Check the certificate id and the environment: production and OTE hold different certificates. ' \
+                 'client.ssl.list shows the certificates of this account.'
+        end
+
         'Check the spelling and the environment: production and OTE hold different domains. ' \
           'client.domains.list shows what this account holds.'
       when ErrorKind::SERVER

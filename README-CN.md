@@ -19,7 +19,7 @@
 注册、续费与转入、DNS、DNSSEC、联系人、SSL 证书、主机托管、订单、产品
 目录以及账户余额。
 
-- **全部 64 个 API 操作**，分组方式与 [`dna` CLI](https://github.com/domainreseller/cli) 一致：
+- **全部 67 个 API 操作**，分组方式与 [`dna` CLI](https://github.com/domainreseller/cli) 一致：
   `dna domain info` 对应 `client.domains.info`，`dna dns add` 对应 `client.dns.add`。
 - **真正的对象，而不是 Hash**：`domain.status.pending_delete?`，`domain.expiration_date` 是 `Time` 对象，
   `availability.available?`，`tld.register_price(1)`。
@@ -122,12 +122,12 @@ client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
 
 | 服务               | CLI 分组      | 操作                                                                                                                                                              |
 |--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.account`   | `dna account` | `get`, `profile`, `transactions`, `all_transactions`                                                                                                              |
 | `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
 | `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
 | `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
 | `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
-| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`, `renew`, `list`, `all`                        |
 | `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
 | `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
 | `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
@@ -311,12 +311,33 @@ client.domains.documents('example.com.tr').each { |d| puts "#{d.name} #{d.status
 ```ruby
 csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
                               organization: 'Example Ltd', organization_unit: 'IT')
-client.ssl.purchase('example.com', package_code: 'PositiveSSL') # 从余额中扣费（CLI：dna ssl initialize）
-client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+# 从余额中扣费（CLI：dna ssl initialize）
+order = client.ssl.purchase('example.com', package_code: 'PositiveSSL')
+id = order.certificate_id # 请保存：之后的每次调用都需要它
+client.ssl.configure(certificate_id: id, csr: csr.csr, approver_mail: 'admin@example.com',
                      authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
-client.ssl.status('example.com').issued? # 轮询直到返回 true
-File.write('example.com.crt', client.ssl.content('example.com').chain)
+client.ssl.status(id).issued? # 轮询直到返回 true
+File.write('example.com.crt', client.ssl.content(id).chain)
 ```
+
+一个域名可以有多张证书，因此已有证书通过其 `certificate_id`（一个 GUID）来指定，而不是域名：
+`purchase` 和 `renew` 会返回它，`list` 可以查到它。在需要 ID 的位置传入域名，会在发送任何内容之前抛出
+`InputError`。请在购买或续费后的 15 天内完成证书配置。
+
+```ruby
+client.ssl.list(domain_name: 'example.com').each { |c| puts "#{c.certificate_id} #{c.status}" } # 最新的在前
+client.ssl.all { |c| puts "#{c.domain_name} #{c.subscription_expires_at}" } # 所有证书，逐页获取
+
+client.ssl.approvers(certificate_id: id)                                      # 针对已有证书
+client.ssl.approvers(domain_name: 'example.com', package_code: 'PositiveSSL') # 购买之前
+
+renewal = client.ssl.renew(id) # 从余额中扣费；订阅到期前 30 天起可续费
+client.ssl.configure(certificate_id: renewal.certificate_id, csr: new_csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+```
+
+续费时请调用 `renew`，然后对它返回的新证书调用 `configure`。不要再次调用 `purchase`：
+那是一笔按购买价格计费的、互不相关的新订单，旧证书也永远不会变为 `Renewed` 状态。
 
 ### 主机托管
 
@@ -335,6 +356,7 @@ puts st.panel_address, st.username, st.password
 ```ruby
 account = client.account.get
 account.balance('USD')
+profile = client.account.profile # profile.company_name, profile.account_currency, profile.status.active?
 
 client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
   puts "#{tx.creation_time} #{tx.type} #{tx.change}"

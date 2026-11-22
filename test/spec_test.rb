@@ -21,9 +21,11 @@ class SpecTest < Minitest::Test
   def self.cases
     c = DnaTest.sample_contact
     from = Time.utc(2026, 1, 1)
+    certificate = DnaTest::CERTIFICATE_ID
     [
       # account
       AccountGetRequest.new,
+      AccountProfileRequest.new,
       AccountTransactionsRequest.new(skip: 10, limit: 20, sort: 'creationTime desc',
                                      transaction_types: %i[register renew], product_types: [:domain],
                                      charge_type: :subtract, currencies: ['USD'], from: from, to: from + 86_400,
@@ -95,17 +97,19 @@ class SpecTest < Minitest::Test
                                 alternative_names: ['www.example.com']),
       SSLCheckCSRRequest.new(csr: '-----BEGIN CERTIFICATE REQUEST-----'),
       SSLInitializeRequest.new(domain_name: 'example.com', package_code: 'PositiveSSL'),
-      SSLConfigureRequest.new(domain_name: 'example.com', csr: 'csr', private_key: 'key',
+      SSLConfigureRequest.new(certificate_id: certificate, csr: 'csr', private_key: 'key',
                               approver_mail: 'admin@example.com', authentication_type: :email,
                               web_server_type: :apache, san_list: ['a.example.com'],
                               wildcard_list: ['*.example.com'], contact: DnaTest.sample_ssl_contact),
-      SSLStatusRequest.new(domain_name: 'example.com'),
-      SSLGetRequest.new(domain_name: 'example.com'),
-      SSLContentRequest.new(domain_name: 'example.com'),
-      SSLReissueRequest.new(domain_name: 'example.com', approver_mail: 'admin@example.com', csr: 'csr',
+      SSLStatusRequest.new(certificate_id: certificate),
+      SSLGetRequest.new(certificate_id: certificate),
+      SSLContentRequest.new(certificate_id: certificate),
+      SSLReissueRequest.new(certificate_id: certificate, approver_mail: 'admin@example.com', csr: 'csr',
                             private_key: 'key'),
-      SSLApproversRequest.new(domain_name: 'example.com', package_code: 'PositiveSSL'),
-      SSLRevokeRequest.new(domain_name: 'example.com'),
+      SSLApproversRequest.new(certificate_id: certificate),
+      SSLRevokeRequest.new(certificate_id: certificate),
+      SSLRenewRequest.new(certificate_id: certificate),
+      SSLListRequest.new(skip: 10, limit: 20, domain_name: 'example.com'),
 
       # hosting
       HostingPackagesRequest.new,
@@ -124,6 +128,14 @@ class SpecTest < Minitest::Test
       TLDListRequest.new(limit: 10, filter_text: 'com.tr', currency: 'USD'),
       SSLProductListRequest.new(limit: 10, filter_text: 'ssl', vendor_name: 'Sectigo', currency: 'USD',
                                 validation_type: 1, wildcard: true, multi_domain: false)
+    ]
+  end
+
+  # Other input modes of operations in .cases; checked against the spec too.
+  def self.variants
+    [
+      # before a purchase there is no certificate yet
+      SSLApproversRequest.new(domain_name: 'example.com', package_code: 'PositiveSSL')
     ]
   end
 
@@ -226,7 +238,7 @@ class SpecTest < Minitest::Test
 
     missing = SPEC['paths'].flat_map { |t, ops| ops.keys.map { |m| "#{m.upcase} #{t}" } }.reject { |k| covered[k] }
     assert_empty missing.sort, 'the API has these operations but this gem has no request class for them'
-    assert_equal 64, covered.size
+    assert_equal 67, covered.size
   end
 
   def test_every_request_class_is_checked
@@ -242,7 +254,7 @@ class SpecTest < Minitest::Test
   end
 
   def test_requests_match_the_spec
-    self.class.cases.each do |req|
+    (self.class.cases + self.class.variants).each do |req|
       name = req.class.request_name
       _, op = find(req.http_method, req.path)
       next unless op
@@ -298,7 +310,7 @@ class SpecTest < Minitest::Test
     expected = {
       DomainRegisterRequest => :billable, DomainRegisterWithContactsRequest => :billable,
       DomainRenewRequest => :billable, DomainRestoreRequest => :billable, DomainTransferRequest => :billable,
-      SSLInitializeRequest => :billable, HostingCreateRequest => :billable,
+      SSLInitializeRequest => :billable, SSLRenewRequest => :billable, HostingCreateRequest => :billable,
       DomainSearchRequest => :read, DomainBulkSearchRequest => :read, SSLStatusRequest => :read,
       DomainRenewCheckRequest => :read, DomainTransferCheckRequest => :read, SSLGenerateCSRRequest => :read,
       DomainForwardDeleteRequest => :destructive, DomainHostDeleteRequest => :destructive,

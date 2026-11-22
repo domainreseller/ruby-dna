@@ -19,7 +19,7 @@
 النطاقات وتسجيلها وتجديدها ونقلها، وDNS، وDNSSEC، وجهات الاتصال، وشهادات SSL، والاستضافة، والطلبات، وكتالوج
 المنتجات، ورصيدك.
 
-- **جميع عمليات API الأربع والستين**، مجمّعة بالطريقة نفسها المتّبعة في [`dna` CLI](https://github.com/domainreseller/cli):
+- **جميع عمليات API السبع والستين**، مجمّعة بالطريقة نفسها المتّبعة في [`dna` CLI](https://github.com/domainreseller/cli):
   الأمر `dna domain info` يقابله `client.domains.info`، والأمر `dna dns add` يقابله `client.dns.add`.
 - **كائنات حقيقية لا Hash**: `domain.status.pending_delete?`، و`domain.expiration_date` من النوع `Time`،
   و`availability.available?`، و`tld.register_price(1)`.
@@ -122,12 +122,12 @@ client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
 
 | الخدمة             | مجموعة CLI    | العمليات                                                                                                                                                          |
 |--------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `client.account`   | `dna account` | `get`, `transactions`, `all_transactions`                                                                                                                         |
+| `client.account`   | `dna account` | `get`, `profile`, `transactions`, `all_transactions`                                                                                                              |
 | `client.contacts`  | `dna contact` | `get`, `create`, `update`, `verification`, `resend_verification`                                                                                                  |
 | `client.domains`   | `dna domain`  | `search`, `bulk_search`, `list`, `all`, `info`, `register`, `register_with_contacts`, `renew`, `renew_check`, `restore`, `transfer`, `transfer_check`, `transfer_status`, `lock`, `unlock`, `set_privacy`, `update_auth_code`, `set_name_servers`, `add_host`, `update_host`, `delete_host`, `update_contacts`, `set_contact_handles`, `documents`, `upload_documents`, `forwarding`, `set_forwarding`, `delete_forwarding` |
 | `client.dns`       | `dna dns`     | `list`, `add`, `update`, `delete`, `apply`                                                                                                                        |
 | `client.dnssec`    | `dna dnssec`  | `get`, `add`, `remove`, `disable`                                                                                                                                 |
-| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`                                                |
+| `client.ssl`       | `dna ssl`     | `generate_csr`, `check_csr`, `purchase`, `configure`, `status`, `get`, `content`, `reissue`, `approvers`, `revoke`, `renew`, `list`, `all`                        |
 | `client.hosting`   | `dna hosting` | `packages`, `plans`, `create`, `wait`, `get`, `get_by_token`, `status`                                                                                            |
 | `client.orders`    | `dna order`   | `get`                                                                                                                                                             |
 | `client.products`  | `dna product` | `list`, `info`, `tlds`, `all_tlds`, `tld`, `ssls`                                                                                                                 |
@@ -311,12 +311,33 @@ client.domains.documents('example.com.tr').each { |d| puts "#{d.name} #{d.status
 ```ruby
 csr = client.ssl.generate_csr(domain_name: 'example.com', country: 'TR', state: 'Istanbul', locality: 'Istanbul',
                               organization: 'Example Ltd', organization_unit: 'IT')
-client.ssl.purchase('example.com', package_code: 'PositiveSSL') # يخصم من الرصيد (CLI: dna ssl initialize)
-client.ssl.configure(domain_name: 'example.com', csr: csr.csr, approver_mail: 'admin@example.com',
+# يخصم من الرصيد (CLI: dna ssl initialize)
+order = client.ssl.purchase('example.com', package_code: 'PositiveSSL')
+id = order.certificate_id # احتفظ به: كل استدعاء لاحق يتطلبه
+client.ssl.configure(certificate_id: id, csr: csr.csr, approver_mail: 'admin@example.com',
                      authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
-client.ssl.status('example.com').issued? # استعلم دوريًا حتى تصبح القيمة true
-File.write('example.com.crt', client.ssl.content('example.com').chain)
+client.ssl.status(id).issued? # استعلم دوريًا حتى تصبح القيمة true
+File.write('example.com.crt', client.ssl.content(id).chain)
 ```
+
+يمكن أن يكون للنطاق الواحد أكثر من شهادة، ولذلك تُحدَّد الشهادة الموجودة بمعرّفها `certificate_id` (وهو GUID) لا باسم
+النطاق: تعيده الدالتان `purchase` و `renew`، وتعثر عليه الدالة `list`. وإذا مُرِّر اسم نطاق في موضع المعرّف أُثير
+الاستثناء `InputError` قبل إرسال أي شيء. اضبط إعدادات الشهادة خلال 15 يومًا من شرائها أو تجديدها.
+
+```ruby
+client.ssl.list(domain_name: 'example.com').each { |c| puts "#{c.certificate_id} #{c.status}" } # الأحدث أولًا
+client.ssl.all { |c| puts "#{c.domain_name} #{c.subscription_expires_at}" } # كل الشهادات، صفحة تلو الأخرى
+
+client.ssl.approvers(certificate_id: id)                                      # لشهادة موجودة
+client.ssl.approvers(domain_name: 'example.com', package_code: 'PositiveSSL') # قبل الشراء
+
+renewal = client.ssl.renew(id) # يخصم من الرصيد؛ متاح ابتداءً من 30 يومًا قبل انتهاء الاشتراك
+client.ssl.configure(certificate_id: renewal.certificate_id, csr: new_csr.csr, approver_mail: 'admin@example.com',
+                     authentication_type: :email, web_server_type: :apache, contact: ssl_contact)
+```
+
+للتجديد استدعِ `renew` ثم `configure` للشهادة الجديدة التي تعيدها. لا تستدعِ `purchase` مرة أخرى: فذلك طلب جديد مستقل
+بسعر الشراء، ولن تنتقل الشهادة القديمة إلى الحالة `Renewed` أبدًا.
 
 ### الاستضافة
 
@@ -335,6 +356,7 @@ puts st.panel_address, st.username, st.password
 ```ruby
 account = client.account.get
 account.balance('USD')
+profile = client.account.profile # profile.company_name, profile.account_currency, profile.status.active?
 
 client.account.all_transactions(from: Date.new(2026, 11, 1)) do |tx|
   puts "#{tx.creation_time} #{tx.type} #{tx.change}"

@@ -7,8 +7,8 @@ class EnumsTest < Minitest::Test
 
   INTEGER_ENUMS = [
     DomainStatus, DNSSECMode, DocumentType, DocumentStatus, DocumentOperationType, DNSSECStatus,
-    DNSSECOperationType, DSRecordStatus, DNSSECAlgorithm, DSDigestType, TransactionType, TransactionStatus,
-    ChargeType, ProductType, OrderType, OrderStatus, OrderProductStatus
+    DNSSECOperationType, DSRecordStatus, DNSSECAlgorithm, DSDigestType, AccountCurrency, ResellerStatus,
+    TransactionType, TransactionStatus, ChargeType, ProductType, OrderType, OrderStatus, OrderProductStatus
   ].freeze
   STRING_ENUMS = [ContactType, ForwardType, IPVersion, RecordType, AuthenticationType, WebServerType].freeze
 
@@ -95,6 +95,11 @@ class EnumsTest < Minitest::Test
     assert_same ChargeType::SUBTRACT, ChargeType[:debit]
     assert_same DNSSECAlgorithm::ECDSA_P256_SHA256, DNSSECAlgorithm['EcdsaP256Sha256']
     assert_same DNSSECAlgorithm::ECDSA_P256_SHA256, DNSSECAlgorithm['13']
+    assert_same AccountCurrency::TRY, AccountCurrency['tl']
+    assert_same AccountCurrency::EURO, AccountCurrency[:eur]
+    assert_equal 'EURO', AccountCurrency[3].to_s
+    assert_same ResellerStatus::SUSPEND, ResellerStatus['suspended']
+    assert_equal 'WaitingForCompletionWizard', ResellerStatus[3].to_s
   end
 
   def test_record_types_keep_the_api_case
@@ -115,6 +120,8 @@ class EnumsTest < Minitest::Test
     orders = 'Dna.OrderService.Orders.'
     product = 'Dna.ProductService.Products.'
     known = {
+      'Dna.ResellerService.Resellers.ResellerMeDto.accountCurrency' => AccountCurrency,
+      'Dna.ResellerService.Resellers.ResellerMeDto.status' => ResellerStatus,
       "#{domains}DomainDto.status" => DomainStatus,
       "#{domains}DomainDocumentInfoDto.status" => DocumentStatus,
       "#{domains}DomainDocumentInfoDto.type" => DocumentType,

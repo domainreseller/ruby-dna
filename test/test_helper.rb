@@ -10,6 +10,8 @@ require 'uri'
 module DnaTest
   RESELLER_ID = '00000000-0000-4000-8000-000000000001'
   API_KEY = 'test-api-key'
+  # A certificate id, as ssl.purchase, ssl.renew and ssl.list return it.
+  CERTIFICATE_ID = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
 
   # A transport that records requests and answers them in order with its
   # replies (repeating the last one). A reply is a Hash (:status, :body,

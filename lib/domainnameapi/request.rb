@@ -476,7 +476,7 @@ module DomainNameApi
   end
 
   # Base class of list requests that return one page at a time. Choose the page
-  # with skip and limit, or let a service page for you (domains.all,
+  # with skip and limit, or let a service page for you (domains.all, ssl.all,
   # account.all_transactions, products.all_tlds).
   class PagedRequest < BaseRequest
     # The page size the all_* iterators ask for when limit is not set.
