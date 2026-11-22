@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-22
+
 **Breaking, and forced by the API.** Since 2026-11-20 the API (production and OTE) addresses an existing SSL
 certificate by its `certificateId` instead of its domain name, because a domain can now have several
 certificates. Version 2.0.0 still sends the domain name, so its `ssl.configure`, `status`, `get`, `content`,
@@ -141,7 +143,8 @@ First release: a faithful Ruby port of [php-dna](https://github.com/domainresell
 - Runnable examples for every method, Minitest suite, GitHub Actions CI for Ruby 2.7–3.4.
 - README in English, Turkish, German, French, Italian, Dutch, Azerbaijani, Arabic and Simplified Chinese.
 
-[Unreleased]: https://github.com/domainreseller/ruby-dna/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/domainreseller/ruby-dna/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v2.1.0
 [2.0.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v2.0.0
 [1.0.1]: https://github.com/domainreseller/ruby-dna/releases/tag/v1.0.1
 [1.0.0]: https://github.com/domainreseller/ruby-dna/releases/tag/v1.0.0
