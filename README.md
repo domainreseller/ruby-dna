@@ -110,6 +110,8 @@ client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
 | `DNA_ENV`         | `production` (default) or `ote`                               |
 | `DNA_TEST_MODE`   | `true` selects OTE (as in the other DomainNameAPI SDKs)       |
 | `DNA_BASE_URL`    | a custom base URL, e.g. a proxy                               |
+| `DNA_APP`         | your application, sent as `X-App` (default `ruby`)            |
+| `DNA_APP_VERSION` | its version, sent as `X-Version` (default: the gem version)   |
 
 ```ruby
 client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
@@ -533,6 +535,8 @@ contacting support.
 | `timeout: 60`                | seconds per HTTP attempt                                                            |
 | `open_timeout: 10`           | seconds to connect                                                                  |
 | `user_agent: 'app/1.0'`      | put your product in front of the User-Agent                                         |
+| `app_name: 'whmcs'`          | your application, sent as the `X-App` header (default `ruby`)                       |
+| `app_version: '8.13.1'`      | its version, sent as the `X-Version` header (default: the gem version)              |
 | `currency: 'TRY'`            | currency of search and catalogue prices                                             |
 | `retries: 2`                 | retry count                                                                         |
 | `max_retry_wait: 30`         | the longest `Retry-After` the client waits for                                      |
@@ -545,6 +549,21 @@ contacting support.
 `DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` is the default
 transport with a proxy or your own CA bundle. Redirects are never followed: the API answers 302 for an unknown
 or suspended reseller ID, which becomes an authentication error.
+
+### Identifying your integration
+
+Every request carries two headers that tell the API which application sends it: `X-App` (default `ruby`)
+and `X-Version` (default: the gem version). Set them to your panel or module and its version:
+
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key,
+                                   app_name: 'WiseCP', app_version: 'V2.0.20-beta')
+# X-App: wisecp, X-Version: 2.0.20
+```
+
+The name is lowercased and only `a-z`, `0-9`, `.`, `_` and `-` are kept; the version keeps only digits and
+dots. An empty name falls back to `ruby`, an empty version to the gem version. `Client.from_env` reads them
+from `DNA_APP` and `DNA_APP_VERSION`. The User-Agent does not change.
 
 ## Testing your code
 

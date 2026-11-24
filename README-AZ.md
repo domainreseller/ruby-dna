@@ -110,6 +110,8 @@ client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
 | `DNA_ENV`         | `production` (susmaya görə) və ya `ote`                       |
 | `DNA_TEST_MODE`   | `true` OTE-ni seçir (digər DomainNameAPI SDK-larındakı kimi)  |
 | `DNA_BASE_URL`    | xüsusi baza URL, məsələn proksi                               |
+| `DNA_APP`         | tətbiqiniz, `X-App` kimi göndərilir (standart `ruby`)         |
+| `DNA_APP_VERSION` | onun versiyası, `X-Version` kimi göndərilir (standart: gem versiyası) |
 
 ```ruby
 client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
@@ -534,6 +536,8 @@ dəyərini qeyd edin.
 | `timeout: 60`                | HTTP cəhdi başına saniyə                                                            |
 | `open_timeout: 10`           | qoşulma üçün saniyə                                                                 |
 | `user_agent: 'app/1.0'`      | məhsulunuzu User-Agent-in əvvəlinə əlavə edir                                       |
+| `app_name: 'whmcs'`          | tətbiqiniz, `X-App` başlığında göndərilir (standart `ruby`)                         |
+| `app_version: '8.13.1'`      | onun versiyası, `X-Version` başlığında göndərilir (standart: gem versiyası)         |
 | `currency: 'TRY'`            | axtarış və kataloq qiymətlərinin valyutası                                          |
 | `retries: 2`                 | təkrar cəhd sayı                                                                    |
 | `max_retry_wait: 30`         | klientin gözlədiyi ən uzun `Retry-After`                                            |
@@ -546,6 +550,21 @@ dəyərini qeyd edin.
 `DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` proksi və ya öz CA paketinizlə
 işləyən susmaya görə transport-dur. Yönləndirmələr heç vaxt izlənmir: API naməlum və ya dayandırılmış reseller ID üçün 302 ilə cavab
 verir, bu da autentifikasiya xətasına çevrilir.
+
+### İnteqrasiyanızın tanıdılması
+
+Hər sorğu API-yə onu hansı tətbiqin göndərdiyini bildirən iki başlıq daşıyır: `X-App` (standart `ruby`) və
+`X-Version` (standart: gem versiyası). Onları öz panelinizə və ya modulunuza və onun versiyasına təyin edin:
+
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key,
+                                   app_name: 'WiseCP', app_version: 'V2.0.20-beta')
+# X-App: wisecp, X-Version: 2.0.20
+```
+
+Ad kiçik hərflərə çevrilir və yalnız `a-z`, `0-9`, `.`, `_` və `-` simvolları saxlanılır; versiyada yalnız
+rəqəmlər və nöqtələr qalır. Boş ad `ruby` dəyərinə, boş versiya gem versiyasına qayıdır. `Client.from_env`
+onları `DNA_APP` və `DNA_APP_VERSION` dəyişənlərindən oxuyur. User-Agent dəyişmir.
 
 ## Kodunuzun test edilməsi
 

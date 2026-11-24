@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Every request carries `X-App` and `X-Version` headers that identify the application using the SDK. They
+  default to `ruby` and the gem version; set them with the `app_name:` and `app_version:` client options or the
+  `DNA_APP` and `DNA_APP_VERSION` environment variables (`Client.from_env`). The name is lowercased and keeps
+  only `a-z`, `0-9`, `.`, `_` and `-`; the version keeps only digits and dots (`V2.0.20-beta` is sent as
+  `2.0.20`). An empty name or version falls back to the default. The User-Agent is unchanged.
+
 ## [2.1.0] - 2026-11-22
 
 **Breaking, and forced by the API.** Since 2026-11-20 the API (production and OTE) addresses an existing SSL

@@ -80,6 +80,56 @@ class ClientTest < Minitest::Test
     refute api.last.headers.key?('Content-Type')
   end
 
+  def test_client_info_headers
+    client, api = fake_client(ok('{"resellerId":"r"}'))
+    client.account.get
+    assert_equal 'ruby', api.last.headers['X-App']
+    assert_equal VERSION, api.last.headers['X-Version']
+    assert_equal 'ruby', client.app_name
+    assert_equal VERSION, client.app_version
+    assert_equal USER_AGENT, api.last.headers['User-Agent']
+
+    client, api = fake_client(ok('{"resellerId":"r"}'), app_name: 'WiseCP5', app_version: 'V2.0.20-beta')
+    client.account.get
+    assert_equal 'wisecp5', api.last.headers['X-App']
+    assert_equal '2.0.20', api.last.headers['X-Version']
+    assert_equal USER_AGENT, api.last.headers['User-Agent']
+
+    { ' WHMCS ' => 'whmcs', 'Host Bill' => 'hostbill', 'my_panel-1.x' => 'my_panel-1.x', 'Çağ!' => 'a',
+      '' => 'ruby', '  ' => 'ruby', '!!!' => 'ruby', nil => 'ruby' }.each do |input, want|
+      assert_equal want, Client.normalize_app_name(input), input.inspect
+    end
+    { 'V2.0.20-beta' => '2.0.20', '.1.2.' => '1.2', '8.13.1' => '8.13.1', 7 => '7', '' => VERSION,
+      'beta' => VERSION, '...' => VERSION, nil => VERSION }.each do |input, want|
+      assert_equal want, Client.normalize_app_version(input), input.inspect
+    end
+  end
+
+  def test_client_info_headers_on_retries
+    client, api = fake_client(status(429, '', 'Retry-After' => '0'), ok('{"resellerId":"r"}'),
+                              app_name: 'whmcs', app_version: '8.13.1')
+    client.account.get
+    assert_equal 2, api.requests.size
+    api.requests.each do |req|
+      assert_equal 'whmcs', req.headers['X-App']
+      assert_equal '8.13.1', req.headers['X-Version']
+    end
+    assert_equal 'whmcs', client.prepare(AccountGetRequest.new).headers['X-App']
+  end
+
+  def test_client_info_from_env
+    env = { 'DNA_RESELLER_ID' => 'r', 'DNA_API_KEY' => 'k' }
+    c = Client.from_env(env)
+    assert_equal ['ruby', VERSION], [c.app_name, c.app_version]
+    c = Client.from_env(env.merge('DNA_APP' => 'HostBill', 'DNA_APP_VERSION' => 'v2025.1'))
+    assert_equal ['hostbill', '2025.1'], [c.app_name, c.app_version]
+    c = Client.from_env(env.merge('DNA_APP' => ' ', 'DNA_APP_VERSION' => ''))
+    assert_equal ['ruby', VERSION], [c.app_name, c.app_version]
+    c = Client.from_env(env.merge('DNA_APP' => 'hostbill', 'DNA_APP_VERSION' => '1.0'), app_name: 'whmcs',
+                                                                                           app_version: '8.13')
+    assert_equal ['whmcs', '8.13'], [c.app_name, c.app_version]
+  end
+
   def test_validation_stops_the_request
     client, api = fake_client(ok)
     e = assert_raises(InputError) { client.domains.renew('', years: 0) }

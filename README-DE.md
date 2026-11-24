@@ -110,6 +110,8 @@ Testmodus-Flags (`'true'`, `'1'`, `true`). `Client.from_env` liest dieselben Var
 | `DNA_ENV`         | `production` (Standard) oder `ote`                            |
 | `DNA_TEST_MODE`   | `true` wählt OTE (wie in den anderen DomainNameAPI-SDKs)      |
 | `DNA_BASE_URL`    | eine eigene Basis-URL, z. B. ein Proxy                        |
+| `DNA_APP`         | Ihre Anwendung, gesendet als `X-App` (Standard `ruby`)        |
+| `DNA_APP_VERSION` | deren Version, gesendet als `X-Version` (Standard: die Gem-Version) |
 
 ```ruby
 client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
@@ -534,6 +536,8 @@ den Support kontaktieren.
 | `timeout: 60`                | Sekunden pro HTTP-Versuch                                                           |
 | `open_timeout: 10`           | Sekunden für den Verbindungsaufbau                                                  |
 | `user_agent: 'app/1.0'`      | Ihr Produkt dem User-Agent voranstellen                                             |
+| `app_name: 'whmcs'`          | Ihre Anwendung, gesendet im Header `X-App` (Standard `ruby`)                        |
+| `app_version: '8.13.1'`      | deren Version, gesendet im Header `X-Version` (Standard: die Gem-Version)           |
 | `currency: 'TRY'`            | Währung der Such- und Katalogpreise                                                 |
 | `retries: 2`                 | Anzahl der Retries                                                                  |
 | `max_retry_wait: 30`         | das längste `Retry-After`, auf das der Client wartet                                |
@@ -546,6 +550,22 @@ den Support kontaktieren.
 `DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` ist der Standardtransport
 mit einem Proxy oder Ihrem eigenen CA-Bundle. Redirects werden nie verfolgt: Die API antwortet bei einer unbekannten
 oder gesperrten Reseller ID mit 302, was zu einem Authentifizierungsfehler wird.
+
+### Die eigene Integration ausweisen
+
+Jeder Request trägt zwei Header, die der API sagen, welche Anwendung ihn sendet: `X-App` (Standard `ruby`)
+und `X-Version` (Standard: die Gem-Version). Setzen Sie sie auf Ihr Panel oder Modul und dessen Version:
+
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key,
+                                   app_name: 'WiseCP', app_version: 'V2.0.20-beta')
+# X-App: wisecp, X-Version: 2.0.20
+```
+
+Der Name wird kleingeschrieben, und nur `a-z`, `0-9`, `.`, `_` und `-` bleiben erhalten; von der Version
+bleiben nur Ziffern und Punkte. Ein leerer Name fällt auf `ruby` zurück, eine leere Version auf die
+Gem-Version. `Client.from_env` liest beide aus `DNA_APP` und `DNA_APP_VERSION`. Der User-Agent ändert sich
+nicht.
 
 ## Den eigenen Code testen
 

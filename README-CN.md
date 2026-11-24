@@ -110,6 +110,8 @@ client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
 | `DNA_ENV`         | `production`（默认）或 `ote`                                  |
 | `DNA_TEST_MODE`   | `true` 选择 OTE（与其他 DomainNameAPI SDK 一致）              |
 | `DNA_BASE_URL`    | 自定义基础 URL，例如代理                                      |
+| `DNA_APP`         | 你的应用，作为 `X-App` 发送（默认 `ruby`）                       |
+| `DNA_APP_VERSION` | 应用的版本，作为 `X-Version` 发送（默认：gem 版本）                  |
 
 ```ruby
 client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
@@ -532,6 +534,8 @@ end
 | `timeout: 60`                | 每次 HTTP 尝试的超时秒数                                                            |
 | `open_timeout: 10`           | 建立连接的超时秒数                                                                  |
 | `user_agent: 'app/1.0'`      | 将你的产品名放在 User-Agent 前面                                                    |
+| `app_name: 'whmcs'`          | 你的应用，通过 `X-App` 请求头发送（默认 `ruby`）                                          |
+| `app_version: '8.13.1'`      | 应用的版本，通过 `X-Version` 请求头发送（默认：gem 版本）                                     |
 | `currency: 'TRY'`            | 搜索价格与目录价格的币种                                                            |
 | `retries: 2`                 | 重试次数                                                                            |
 | `max_retry_wait: 30`         | 客户端最多等待的 `Retry-After` 时长                                                 |
@@ -544,6 +548,20 @@ end
 `DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` 即带有代理或你自己的
 CA 证书包的默认传输层。绝不会跟随重定向：对于未知或已暂停的经销商 ID，API 会返回 302，
 这会被转换为认证错误。
+
+### 标识你的集成
+
+每个请求都带有两个请求头，告诉 API 是哪个应用发出的：`X-App`（默认 `ruby`）和 `X-Version`（默认：gem
+版本）。把它们设置为你的面板或模块及其版本：
+
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key,
+                                   app_name: 'WiseCP', app_version: 'V2.0.20-beta')
+# X-App: wisecp, X-Version: 2.0.20
+```
+
+名称会转为小写，只保留 `a-z`、`0-9`、`.`、`_` 和 `-`；版本只保留数字和点。名称为空时回退为 `ruby`，
+版本为空时回退为 gem 版本。`Client.from_env` 从 `DNA_APP` 和 `DNA_APP_VERSION` 读取它们。User-Agent 不变。
 
 ## 测试你的代码
 
