@@ -110,6 +110,8 @@ client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key)
 | `DNA_ENV`         | `production` (الافتراضي) أو `ote`                             |
 | `DNA_TEST_MODE`   | القيمة `true` تختار OTE (كما في حزم DomainNameAPI SDK الأخرى) |
 | `DNA_BASE_URL`    | عنوان URL أساسي مخصص، مثل وسيط (proxy)                        |
+| `DNA_APP`         | تطبيقك، يُرسَل في `X-App` (الافتراضي `ruby`)                  |
+| `DNA_APP_VERSION` | إصدار التطبيق، يُرسَل في `X-Version` (الافتراضي: إصدار الـ gem) |
 
 ```ruby
 client = DomainNameApi::Client.from_env(user_agent: 'my-panel/1.4')
@@ -532,6 +534,8 @@ end
 | `timeout: 60`                | عدد الثواني لكل محاولة HTTP                                                         |
 | `open_timeout: 10`           | عدد الثواني المسموح بها لإنشاء الاتصال                                              |
 | `user_agent: 'app/1.0'`      | وضع اسم منتجك قبل User-Agent                                                        |
+| `app_name: 'whmcs'`          | تطبيقك، يُرسَل في الترويسة `X-App` (الافتراضي `ruby`)                               |
+| `app_version: '8.13.1'`      | إصدار التطبيق، يُرسَل في الترويسة `X-Version` (الافتراضي: إصدار الـ gem)            |
 | `currency: 'TRY'`            | عملة أسعار البحث والكتالوج                                                          |
 | `retries: 2`                 | عدد إعادات المحاولة                                                                 |
 | `max_retry_wait: 30`         | أطول مدة `Retry-After` ينتظرها العميل                                               |
@@ -544,6 +548,21 @@ end
 يمثّل `DomainNameApi::NetHTTPTransport.new(proxy: 'http://proxy:8080', ca_file: 'corp-ca.pem')` طبقة النقل الافتراضية
 مع وسيط (proxy) أو حزمة CA الخاصة بك. لا تُتبَّع إعادة التوجيه أبدًا: إذ تردّ API بالحالة 302 على معرّف موزّع غير معروف
 أو موقوف، فيتحوّل ذلك إلى خطأ مصادقة.
+
+### التعريف بتكاملك
+
+يحمل كل طلب ترويستين تُخبران الـ API بالتطبيق الذي أرسله: `X-App` (الافتراضي `ruby`) و `X-Version`
+(الافتراضي: إصدار الـ gem). اضبطهما على لوحتك أو وحدتك وإصدارها:
+
+```ruby
+client = DomainNameApi::Client.new(reseller_id: reseller_id, api_key: api_key,
+                                   app_name: 'WiseCP', app_version: 'V2.0.20-beta')
+# X-App: wisecp, X-Version: 2.0.20
+```
+
+يُحوَّل الاسم إلى أحرف صغيرة ولا يُبقى منه إلا `a-z` و `0-9` و `.` و `_` و `-`؛ ولا يبقى من الإصدار إلا
+الأرقام والنقاط. يعود الاسم الفارغ إلى `ruby`، والإصدار الفارغ إلى إصدار الـ gem. تقرأهما `Client.from_env`
+من `DNA_APP` و `DNA_APP_VERSION`. لا يتغيّر User-Agent.
 
 ## اختبار شيفرتك
 

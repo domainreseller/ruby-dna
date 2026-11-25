@@ -44,6 +44,11 @@ module DomainNameApi
     ENV_ENVIRONMENT = 'DNA_ENV'      # "production" or "ote"
     ENV_TEST_MODE = 'DNA_TEST_MODE'  # "true" selects OTE
     ENV_BASE_URL = 'DNA_BASE_URL'    # overrides the environment's URL
+    ENV_APP = 'DNA_APP'                 # the app_name: option (X-App header)
+    ENV_APP_VERSION = 'DNA_APP_VERSION' # the app_version: option (X-Version header)
+
+    # Sent as X-App when no app_name: is given.
+    DEFAULT_APP_NAME = 'ruby'
 
     METHODS = %w[GET POST PUT DELETE PATCH].freeze
 
@@ -67,7 +72,7 @@ module DomainNameApi
     attr_reader :products
 
     attr_reader :base_url, :reseller_id, :currency, :retries, :max_retry_wait, :timeout, :open_timeout,
-                :user_agent, :transport
+                :user_agent, :transport, :app_name, :app_version
 
     # Accepts :production, :ote and the spellings panels and the other SDKs
     # store: "prod", "live", "test", "sandbox", and test-mode flags ("true",
@@ -84,9 +89,29 @@ module DomainNameApi
       end
     end
 
+    # Lowercases the application name and keeps only a-z, 0-9, ".", "_" and
+    # "-": "WiseCP 5" becomes "wisecp5". Returns DEFAULT_APP_NAME when nothing
+    # is left.
+    def self.normalize_app_name(value)
+      name = value.to_s.strip.downcase.gsub(/[^a-z0-9._-]/, '')
+      name.empty? ? DEFAULT_APP_NAME : name
+    end
+
+    # Keeps only digits and dots and trims dots at both ends: "V2.0.20-beta"
+    # becomes "2.0.20". Returns the gem's version (normalized the same way)
+    # when nothing is left.
+    def self.normalize_app_version(value)
+      [value, VERSION].each do |candidate|
+        version = candidate.to_s.delete('^0-9.').gsub(/\A\.+|\.+\z/, '')
+        return version unless version.empty?
+      end
+      ''
+    end
+
     # Creates a client from the environment variables the dna CLI uses:
     # DNA_RESELLER_ID, DNA_API_KEY, DNA_ENV ("production" or "ote"; or
-    # DNA_TEST_MODE=true) and DNA_BASE_URL. Options given here win.
+    # DNA_TEST_MODE=true) and DNA_BASE_URL, plus DNA_APP and DNA_APP_VERSION
+    # (the app_name: and app_version: options). Options given here win.
     def self.from_env(env = nil, **options)
       if env.nil?
         # from_env('DNA_API_KEY' => ...) arrives as keywords with String keys.
@@ -97,6 +122,8 @@ module DomainNameApi
       mode = env[ENV_TEST_MODE] if Util.blank?(mode)
       settings = { environment: parse_environment(mode) }
       settings[:base_url] = env[ENV_BASE_URL].strip unless Util.blank?(env[ENV_BASE_URL])
+      settings[:app_name] = env[ENV_APP] unless Util.blank?(env[ENV_APP])
+      settings[:app_version] = env[ENV_APP_VERSION] unless Util.blank?(env[ENV_APP_VERSION])
       reseller_id = env[ENV_RESELLER_ID]
       api_key = env[ENV_API_KEY]
       if Util.blank?(reseller_id) || Util.blank?(api_key)
@@ -118,6 +145,10 @@ module DomainNameApi
     #                  soft quota the API delays responses by up to 5 seconds
     # open_timeout::   seconds to connect (default 10)
     # user_agent::     your product, put in front of the User-Agent: "my-panel/1.4"
+    # app_name::       your application, sent as the X-App header ("whmcs"; default "ruby"):
+    #                  lowercased, only a-z, 0-9, ".", "_" and "-" kept; empty means the default
+    # app_version::    its version, sent as the X-Version header: digits and dots only
+    #                  ("V2.0.20-beta" is sent as "2.0.20"); empty means this gem's version
     # currency::       currency of search and catalogue prices ("USD", "TRY"); default: the account's
     # retries::        how often a failed request is retried (default 2)
     # max_retry_wait:: the longest Retry-After the client waits for, in seconds (default 30)
@@ -128,8 +159,8 @@ module DomainNameApi
     #                  response and retry
     # transport::      the HTTP layer (default NetHTTPTransport.new)
     def initialize(reseller_id:, api_key:, environment: :production, base_url: nil, timeout: 60, open_timeout: 10,
-                   user_agent: nil, currency: nil, retries: 2, max_retry_wait: 30, pacing: true, read_only: false,
-                   logger: nil, on_trace: nil, transport: nil)
+                   user_agent: nil, app_name: nil, app_version: nil, currency: nil, retries: 2, max_retry_wait: 30,
+                   pacing: true, read_only: false, logger: nil, on_trace: nil, transport: nil)
       @reseller_id = reseller_id.to_s.strip
       @api_key = api_key.to_s.strip
       raise MissingCredentialsError if @reseller_id.empty? || @api_key.empty?
@@ -141,6 +172,8 @@ module DomainNameApi
       @open_timeout = open_timeout
       product = user_agent.to_s.strip
       @user_agent = product.empty? ? USER_AGENT : "#{product} #{USER_AGENT}"
+      @app_name = self.class.normalize_app_name(app_name)
+      @app_version = self.class.normalize_app_version(app_version)
       @currency = Util.blank?(currency) ? nil : currency.to_s.strip.upcase
       @retries = [retries.to_i, 0].max
       @max_retry_wait = max_retry_wait.to_f
@@ -305,7 +338,9 @@ module DomainNameApi
         'User-Agent' => @user_agent,
         'X-API-KEY' => @api_key,
         '__reseller' => @reseller_id,
-        'X-Correlation-ID' => corr
+        'X-Correlation-ID' => corr,
+        'X-App' => @app_name,
+        'X-Version' => @app_version
       }
       headers['Content-Type'] = 'application/json' unless body.nil?
       PreparedRequest.new(http_method: endpoint.http_method, url: url, headers: headers, body: body,
