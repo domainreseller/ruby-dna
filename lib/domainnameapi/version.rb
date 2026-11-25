@@ -2,7 +2,7 @@
 
 module DomainNameApi
   # Version of this gem.
-  VERSION = '2.1.0'
+  VERSION = '2.2.0'
 
   # Sent with every request (see the +user_agent:+ option of Client). The API
   # sits behind Cloudflare, which rejects requests without a descriptive agent.

@@ -60,13 +60,13 @@ Bundler ilə:
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.1.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.2.0'
 ```
 
 Və ya release-ə əlavə olunmuş `.gem` faylını quraşdırın:
 
 ```bash
-gem install ./domainnameapi-2.1.0.gem
+gem install ./domainnameapi-2.2.0.gem
 ```
 
 ```ruby

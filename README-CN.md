@@ -60,13 +60,13 @@ puts "#{a.domain_name} is available for #{a.price} #{a.currency}" if a.available
 
 ```ruby
 # Gemfile
-gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.1.0'
+gem 'domainnameapi', git: 'https://github.com/domainreseller/ruby-dna.git', tag: 'v2.2.0'
 ```
 
 或者安装发布版本附带的 `.gem` 文件：
 
 ```bash
-gem install ./domainnameapi-2.1.0.gem
+gem install ./domainnameapi-2.2.0.gem
 ```
 
 ```ruby
